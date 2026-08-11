@@ -13,7 +13,10 @@ import {
   DollarSign,
   FileText,
   LogOut,
-  AlertCircle
+  AlertCircle,
+  PenLine,
+  Stamp,
+  Trash2
 } from 'lucide-react';
 import { db, exportDatabaseToJSON, importDatabaseFromJSON } from '@/lib/db';
 import { useToast } from '@/components/ToastProvider';
@@ -44,6 +47,12 @@ export default function SettingsPage() {
   const [defaultTerms, setDefaultTerms] = useState('1. Payment due within 15 days of invoice date.\n2. Goods once sold are non-refundable.\n3. Verify bottle seals before taking delivery.');
   const [businessLogoUrl, setBusinessLogoUrl] = useState<string>('');
 
+  // Signature & Company Seal (stored once here, reused on every invoice)
+  const [signatureUrl, setSignatureUrl] = useState<string>('');
+  const [stampUrl, setStampUrl] = useState<string>('');
+  const [includeSignature, setIncludeSignature] = useState<boolean>(true);
+  const [includeStamp, setIncludeStamp] = useState<boolean>(true);
+
   const [loading, setLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
@@ -60,6 +69,10 @@ export default function SettingsPage() {
         const curr = await db.settings.get('currency_symbol');
         const terms = await db.settings.get('default_terms');
         const logo = await db.settings.get('business_logo_url');
+        const sig = await db.settings.get('default_signature_url');
+        const stp = await db.settings.get('default_stamp_url');
+        const showSig = await db.settings.get('default_show_signature');
+        const showStp = await db.settings.get('default_show_stamp');
 
         if (bName) setBusinessName(bName.value);
         if (bTag) setBusinessTagline(bTag.value);
@@ -69,6 +82,10 @@ export default function SettingsPage() {
         if (curr) setCurrencySymbol(curr.value);
         if (terms) setDefaultTerms(terms.value);
         if (logo) setBusinessLogoUrl(logo.value);
+        if (sig) setSignatureUrl(sig.value);
+        if (stp) setStampUrl(stp.value);
+        if (showSig) setIncludeSignature(showSig.value === 'true');
+        if (showStp) setIncludeStamp(showStp.value === 'true');
 
         const token = getStoredAccessToken();
         setIsDriveConnected(!!token);
@@ -95,6 +112,10 @@ export default function SettingsPage() {
       await db.settings.put({ key: 'currency_symbol', value: currencySymbol });
       await db.settings.put({ key: 'default_terms', value: defaultTerms });
       await db.settings.put({ key: 'business_logo_url', value: businessLogoUrl });
+      await db.settings.put({ key: 'default_signature_url', value: signatureUrl });
+      await db.settings.put({ key: 'default_stamp_url', value: stampUrl });
+      await db.settings.put({ key: 'default_show_signature', value: String(includeSignature) });
+      await db.settings.put({ key: 'default_show_stamp', value: String(includeStamp) });
 
       setMessage({ type: 'success', text: 'Business profile updated successfully!' });
       showToast('Business profile updated successfully!', 'success');
@@ -120,14 +141,84 @@ export default function SettingsPage() {
     reader.readAsDataURL(file);
   }
 
+  // Upload & immediately store the signature / company seal so every invoice can reuse it
+  function handleSignatureStampUpload(
+    e: React.ChangeEvent<HTMLInputElement>,
+    kind: 'signature' | 'stamp'
+  ) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = async (event) => {
+      if (!event.target?.result) return;
+      const val = event.target.result as string;
+      try {
+        if (kind === 'signature') {
+          setSignatureUrl(val);
+          await db.settings.put({ key: 'default_signature_url', value: val });
+          await db.settings.put({ key: 'default_show_signature', value: String(includeSignature) });
+          showToast('Signature saved — it will appear on all invoices.', 'success');
+        } else {
+          setStampUrl(val);
+          await db.settings.put({ key: 'default_stamp_url', value: val });
+          await db.settings.put({ key: 'default_show_stamp', value: String(includeStamp) });
+          showToast('Company seal saved — it will appear on all invoices.', 'success');
+        }
+      } catch (err) {
+        console.error(err);
+        showToast('Failed to save image.', 'error');
+      }
+    };
+    reader.readAsDataURL(file);
+    e.target.value = '';
+  }
+
+  async function handleRemoveSignatureStamp(kind: 'signature' | 'stamp') {
+    try {
+      if (kind === 'signature') {
+        setSignatureUrl('');
+        await db.settings.put({ key: 'default_signature_url', value: '' });
+        showToast('Signature removed.', 'info');
+      } else {
+        setStampUrl('');
+        await db.settings.put({ key: 'default_stamp_url', value: '' });
+        showToast('Company seal removed.', 'info');
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  }
+
+  async function handleToggleInclude(kind: 'signature' | 'stamp', value: boolean) {
+    if (kind === 'signature') {
+      setIncludeSignature(value);
+      await db.settings.put({ key: 'default_show_signature', value: String(value) });
+    } else {
+      setIncludeStamp(value);
+      await db.settings.put({ key: 'default_show_stamp', value: String(value) });
+    }
+  }
+
   // Google OAuth Connection trigger
   function handleConnectGoogleDrive() {
-    if (!googleClientId.trim()) {
+    const trimmedId = googleClientId.trim();
+    if (!trimmedId) {
       alert("Please enter a valid Google OAuth Client ID first.");
       return;
     }
 
-    const client = initGoogleAuthClient(googleClientId.trim(), (token) => {
+    // Validation: Check if user accidentally entered an email address instead of an OAuth Client ID
+    if (trimmedId.includes('@') || !trimmedId.includes('.apps.googleusercontent.com')) {
+      alert(
+        "⚠️ Invalid Google Client ID Format!\n\n" +
+        "You entered an email address or invalid text. A Google OAuth Client ID is NOT your Gmail address.\n\n" +
+        "It is a developer credential from Google Cloud Console that ends with '.apps.googleusercontent.com' (e.g. 123456789-xyz.apps.googleusercontent.com).\n\n" +
+        "💡 Tip: If you want instant 1-click backup without setting up Google Cloud Console, use the 'Export Database (.json)' button below!"
+      );
+      return;
+    }
+
+    const client = initGoogleAuthClient(trimmedId, (token) => {
       setIsDriveConnected(true);
       setMessage({ type: 'success', text: 'Google Drive connected successfully!' });
     });
@@ -274,21 +365,26 @@ export default function SettingsPage() {
 
           {!isDriveConnected ? (
             <div className="space-y-3 bg-slate-950 p-4 rounded-xl border border-slate-800">
-              <label className="block text-xs font-bold uppercase text-slate-400">
-                Google OAuth Client ID
-              </label>
-              <input
-                type="text"
-                placeholder="e.g. 123456789-abc.apps.googleusercontent.com"
-                value={googleClientId}
-                onChange={(e) => setGoogleClientId(e.target.value)}
-                className="w-full bg-slate-900 border border-slate-800 rounded-xl px-4 py-2 text-xs text-white"
-              />
+              <div>
+                <label className="block text-xs font-bold uppercase text-slate-400 mb-1">
+                  Google OAuth Client ID <span className="text-rose-400 font-normal text-[11px]">(Do NOT enter email address)</span>
+                </label>
+                <p className="text-[11px] text-slate-500 mb-2">
+                  Must be a Google OAuth 2.0 Client ID created in Google Cloud Console ending with <code className="text-emerald-400">.apps.googleusercontent.com</code>.
+                </p>
+                <input
+                  type="text"
+                  placeholder="e.g. 123456789-abc.apps.googleusercontent.com"
+                  value={googleClientId}
+                  onChange={(e) => setGoogleClientId(e.target.value)}
+                  className="w-full bg-slate-900 border border-slate-800 rounded-xl px-4 py-2.5 text-xs text-white placeholder-slate-600 focus:outline-none focus:border-emerald-500"
+                />
+              </div>
               <button
                 onClick={handleConnectGoogleDrive}
                 className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-xl text-xs shadow-md transition"
               >
-                Connect Google Account
+                Connect Google Drive Account
               </button>
             </div>
           ) : (
@@ -468,6 +564,109 @@ export default function SettingsPage() {
             <span className="text-[11px] text-slate-500 max-w-xs">
               If no logo is uploaded, the invoice template will hide the image area automatically.
             </span>
+          </div>
+        </div>
+
+        {/* Signature & Company Seal — stored once, applied to every invoice */}
+        <div className="pt-4 border-t border-slate-800 space-y-3">
+          <div>
+            <h3 className="text-sm font-bold text-white flex items-center space-x-2">
+              <PenLine className="text-emerald-400" size={16} />
+              <span>Authorized Signature & Company Seal</span>
+            </h3>
+            <p className="text-[11px] text-slate-500 mt-0.5">
+              Upload these once. They are stored securely on this device and automatically applied to every new invoice.
+            </p>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            {/* Signature */}
+            <div className="bg-slate-950 border border-slate-800 rounded-xl p-4 space-y-3">
+              <div className="flex items-center justify-between">
+                <span className="text-[11px] font-bold uppercase text-slate-300 flex items-center space-x-1.5">
+                  <PenLine size={14} className="text-emerald-400" />
+                  <span>Signature</span>
+                </span>
+                <label className="flex items-center space-x-1.5 text-[11px] text-slate-400 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={includeSignature}
+                    onChange={(e) => handleToggleInclude('signature', e.target.checked)}
+                    className="rounded border-slate-700 bg-slate-950 text-emerald-500 focus:ring-emerald-500"
+                  />
+                  <span>Show on invoices</span>
+                </label>
+              </div>
+
+              {signatureUrl ? (
+                <div className="flex items-center justify-between bg-slate-900 border border-slate-800 rounded-lg p-2">
+                  <img src={signatureUrl} alt="Signature" className="h-12 max-w-[140px] object-contain bg-white rounded px-1" />
+                  <button
+                    type="button"
+                    onClick={() => handleRemoveSignatureStamp('signature')}
+                    className="p-1.5 rounded-lg text-slate-400 hover:text-rose-400 hover:bg-rose-900/30 transition"
+                    title="Remove signature"
+                  >
+                    <Trash2 size={14} />
+                  </button>
+                </div>
+              ) : (
+                <label className="flex flex-col items-center justify-center p-4 border-2 border-dashed border-slate-800 rounded-lg cursor-pointer hover:border-emerald-500 transition">
+                  <Upload size={18} className="text-slate-400 mb-1" />
+                  <span className="text-[10px] text-slate-400">Upload signature image</span>
+                  <input
+                    type="file"
+                    accept="image/*"
+                    onChange={(e) => handleSignatureStampUpload(e, 'signature')}
+                    className="hidden"
+                  />
+                </label>
+              )}
+            </div>
+
+            {/* Stamp / Seal */}
+            <div className="bg-slate-950 border border-slate-800 rounded-xl p-4 space-y-3">
+              <div className="flex items-center justify-between">
+                <span className="text-[11px] font-bold uppercase text-slate-300 flex items-center space-x-1.5">
+                  <Stamp size={14} className="text-emerald-400" />
+                  <span>Company Seal</span>
+                </span>
+                <label className="flex items-center space-x-1.5 text-[11px] text-slate-400 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={includeStamp}
+                    onChange={(e) => handleToggleInclude('stamp', e.target.checked)}
+                    className="rounded border-slate-700 bg-slate-950 text-emerald-500 focus:ring-emerald-500"
+                  />
+                  <span>Show on invoices</span>
+                </label>
+              </div>
+
+              {stampUrl ? (
+                <div className="flex items-center justify-between bg-slate-900 border border-slate-800 rounded-lg p-2">
+                  <img src={stampUrl} alt="Company Seal" className="h-12 max-w-[140px] object-contain bg-white rounded px-1" />
+                  <button
+                    type="button"
+                    onClick={() => handleRemoveSignatureStamp('stamp')}
+                    className="p-1.5 rounded-lg text-slate-400 hover:text-rose-400 hover:bg-rose-900/30 transition"
+                    title="Remove company seal"
+                  >
+                    <Trash2 size={14} />
+                  </button>
+                </div>
+              ) : (
+                <label className="flex flex-col items-center justify-center p-4 border-2 border-dashed border-slate-800 rounded-lg cursor-pointer hover:border-emerald-500 transition">
+                  <Upload size={18} className="text-slate-400 mb-1" />
+                  <span className="text-[10px] text-slate-400">Upload seal / stamp image</span>
+                  <input
+                    type="file"
+                    accept="image/*"
+                    onChange={(e) => handleSignatureStampUpload(e, 'stamp')}
+                    className="hidden"
+                  />
+                </label>
+              )}
+            </div>
           </div>
         </div>
 

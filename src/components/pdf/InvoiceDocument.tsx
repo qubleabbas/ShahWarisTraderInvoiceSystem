@@ -158,6 +158,11 @@ export default function InvoiceDocument({ invoices }: InvoiceDocumentProps) {
 
             {/* Totals Breakdown Section */}
             <View style={styles.totalsContainer} wrap={false}>
+              {isPaid ? (
+                <View style={styles.paidStamp}>
+                  <Text>PAID</Text>
+                </View>
+              ) : null}
               <View style={styles.totalsBox}>
                 <View style={styles.totalRow}>
                   <Text style={styles.totalLabel}>Subtotal:</Text>
@@ -202,14 +207,33 @@ export default function InvoiceDocument({ invoices }: InvoiceDocumentProps) {
               </View>
             </View>
 
-            {/* Status Watermark Stamp */}
-            {isPaid ? (
-              <View style={styles.paidStampOverlay}>
-                <Text>PAID</Text>
+            {/* Signature / Stamp — flows once at the end (above the repeating
+                footer); kept unbreakable so it never splits across pages */}
+            {(hasStamp || hasSignature) ? (
+              <View style={styles.signatureRow} wrap={false}>
+                <View style={styles.stampBox}>
+                  {hasStamp ? (
+                    <>
+                      <Image src={invoice.stamp_url!} style={styles.stampImage} />
+                      <Text style={styles.stampLabel}>Company Seal</Text>
+                    </>
+                  ) : null}
+                </View>
+
+                <View style={styles.signatureBox}>
+                  {hasSignature ? (
+                    <>
+                      <Image src={invoice.signature_url!} style={styles.signatureImage} />
+                      <Text style={styles.signatureLabel}>Authorized Signature</Text>
+                    </>
+                  ) : null}
+                </View>
               </View>
             ) : null}
 
-            {/* Repeating Fixed Footer (Appears at bottom of every page) */}
+            {/* Terms & Conditions — fixed footer repeated on every page.
+                Bounded height (capped lines) + reserved page padding keep it
+                from ever overlaying the totals or any other content. */}
             <View style={styles.footer} fixed>
               <View style={styles.termsContainer}>
                 <Text style={styles.termsTitle}>Terms & Conditions:</Text>
@@ -217,28 +241,6 @@ export default function InvoiceDocument({ invoices }: InvoiceDocumentProps) {
                   {invoice.terms_conditions || '1. Payment due within specified period.\n2. Goods once sold are non-refundable.'}
                 </Text>
               </View>
-
-              {(hasStamp || hasSignature) ? (
-                <View style={styles.signatureRow}>
-                  <View style={styles.stampBox}>
-                    {hasStamp ? (
-                      <>
-                        <Image src={invoice.stamp_url!} style={styles.stampImage} />
-                        <Text style={styles.stampLabel}>Company Seal</Text>
-                      </>
-                    ) : null}
-                  </View>
-
-                  <View style={styles.signatureBox}>
-                    {hasSignature ? (
-                      <>
-                        <Image src={invoice.signature_url!} style={styles.signatureImage} />
-                        <Text style={styles.signatureLabel}>Authorized Signature</Text>
-                      </>
-                    ) : null}
-                  </View>
-                </View>
-              ) : null}
             </View>
           </Page>
         );

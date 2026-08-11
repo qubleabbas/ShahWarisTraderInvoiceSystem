@@ -98,28 +98,52 @@ export class QureshiDatabase extends Dexie {
 
 export const db = new QureshiDatabase();
 
+// Ensures the seed routine only ever runs once per page load, even if called
+// concurrently (e.g. React Strict Mode invokes effects twice in development).
+let seedPromise: Promise<void> | null = null;
+
 // Initialize default seed data if DB is empty
 export async function initSeedData() {
-  const catCount = await db.categories.count();
-  if (catCount === 0) {
-    const sharbatCatId = await db.categories.add({ name: 'Sharbat (Syrups)' });
-    const majoonCatId = await db.categories.add({ name: 'Majoon (Herbal Pastes)' });
-    const arqCatId = await db.categories.add({ name: 'Arq (Distillates)' });
-    const khamiraCatId = await db.categories.add({ name: 'Khamira & Tablets' });
+  if (!seedPromise) {
+    seedPromise = doSeed().catch(err => {
+      // Reset so a genuine transient failure can be retried on a later call,
+      // but a duplicate-key race simply resolves as a no-op.
+      seedPromise = null;
+      throw err;
+    });
+  }
+  return seedPromise;
+}
 
-    // Seed Default Packaging Units
-    await db.units.bulkAdd([
-      { name: '800 ml bottle' },
-      { name: '500 ml bottle' },
-      { name: '250 gram jar' },
-      { name: '150 gram jar' },
-      { name: '100 gram jar' },
-      { name: '50 ml' },
-      { name: '20 ml' },
-      { name: '10 grams' },
-      { name: '1 litre' },
-      { name: 'Pack of 10' }
-    ]);
+async function doSeed() {
+  // Run the whole check-and-insert atomically. Dexie serializes transactions on
+  // the same tables, so a second concurrent call sees the committed data and the
+  // `count === 0` guards short-circuit — no duplicate inserts, no ConstraintError.
+  await db.transaction(
+    'rw',
+    [db.categories, db.units, db.products, db.customers, db.invoices, db.invoice_items, db.settings],
+    async () => {
+      const catCount = await db.categories.count();
+      if (catCount > 0) return;
+
+      const sharbatCatId = await db.categories.add({ name: 'Sharbat (Syrups)' });
+      const majoonCatId = await db.categories.add({ name: 'Majoon (Herbal Pastes)' });
+      const arqCatId = await db.categories.add({ name: 'Arq (Distillates)' });
+      const khamiraCatId = await db.categories.add({ name: 'Khamira & Tablets' });
+
+      // Seed Default Packaging Units
+      await db.units.bulkAdd([
+        { name: '800 ml bottle' },
+        { name: '500 ml bottle' },
+        { name: '250 gram jar' },
+        { name: '150 gram jar' },
+        { name: '100 gram jar' },
+        { name: '50 ml' },
+        { name: '20 ml' },
+        { name: '10 grams' },
+        { name: '1 litre' },
+        { name: 'Pack of 10' }
+      ]);
 
     // Seed Sample Products with Purchase Price (cost_price / purchase_price) & Sale Price (price)
     await db.products.bulkAdd([
@@ -174,28 +198,32 @@ export async function initSeedData() {
       due_date: new Date(Date.now() + 13 * 24 * 60 * 60 * 1000).toISOString()
     });
 
-    await db.invoice_items.bulkAdd([
-      { invoice_id: invId, product_id: 1, quantity: 10, unit_price: 480, purchase_price: 320, item_discount: 0, line_total: 4800 },
-      { invoice_id: invId, product_id: 2, quantity: 10, unit_price: 550, purchase_price: 370, item_discount: 0, line_total: 5500 }
-    ]);
-  }
+      await db.invoice_items.bulkAdd([
+        { invoice_id: invId, product_id: 1, quantity: 10, unit_price: 480, purchase_price: 320, item_discount: 0, line_total: 4800 },
+        { invoice_id: invId, product_id: 2, quantity: 10, unit_price: 550, purchase_price: 370, item_discount: 0, line_total: 5500 }
+      ]);
+    }
+  );
 
-  // Check if units table is empty in existing database
-  const unitCount = await db.units.count();
-  if (unitCount === 0) {
-    await db.units.bulkAdd([
-      { name: '800 ml bottle' },
-      { name: '500 ml bottle' },
-      { name: '250 gram jar' },
-      { name: '150 gram jar' },
-      { name: '100 gram jar' },
-      { name: '50 ml' },
-      { name: '20 ml' },
-      { name: '10 grams' },
-      { name: '1 litre' },
-      { name: 'Pack of 10' }
-    ]);
-  }
+  // Migration fallback: ensure packaging units exist for older databases that
+  // were seeded before units were added. Guarded by count, so it never duplicates.
+  await db.transaction('rw', [db.units], async () => {
+    const unitCount = await db.units.count();
+    if (unitCount === 0) {
+      await db.units.bulkAdd([
+        { name: '800 ml bottle' },
+        { name: '500 ml bottle' },
+        { name: '250 gram jar' },
+        { name: '150 gram jar' },
+        { name: '100 gram jar' },
+        { name: '50 ml' },
+        { name: '20 ml' },
+        { name: '10 grams' },
+        { name: '1 litre' },
+        { name: 'Pack of 10' }
+      ]);
+    }
+  });
 
   notifyDbMutation();
 }

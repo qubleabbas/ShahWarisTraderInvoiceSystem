@@ -10,7 +10,6 @@ import {
   AlertOctagon,
   ArrowLeft,
   CheckCircle2,
-  Upload,
   UserPlus
 } from 'lucide-react';
 import { db, Product, Customer, Category } from '@/lib/db';
@@ -169,6 +168,15 @@ export default function NewInvoicePage() {
     setItems(updated);
   }
 
+  // Quick quantity stepper (+/-) for fast invoice entry
+  function adjustQty(index: number, delta: number) {
+    const updated = [...items];
+    const current = parseFloat(updated[index].quantity) || 0;
+    const next = Math.max(0, Math.round((current + delta) * 100) / 100);
+    updated[index].quantity = String(next);
+    setItems(updated);
+  }
+
   // Stock Validation Check
   let stockErrors: string[] = [];
   items.forEach((item, idx) => {
@@ -211,25 +219,6 @@ export default function NewInvoicePage() {
   const taxNum = parseFloat(taxPercent) || 0;
   const taxAmount = (subtotalAfterDiscount * taxNum) / 100;
   const grandTotal = Math.max(0, subtotalAfterDiscount + taxAmount);
-
-  // File Upload Helpers
-  function handleImageUpload(e: React.ChangeEvent<HTMLInputElement>, setter: (val: string) => void, isSig: boolean) {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      if (event.target?.result) {
-        const val = event.target.result as string;
-        setter(val);
-        if (isSig) {
-          persistSignatureStampPreferences(includeSignature, includeStamp, val, stampUrl);
-        } else {
-          persistSignatureStampPreferences(includeSignature, includeStamp, signatureUrl, val);
-        }
-      }
-    };
-    reader.readAsDataURL(file);
-  }
 
   // Handle Quick Add Customer
   async function handleCreateQuickCustomer(e: React.FormEvent) {
@@ -487,27 +476,47 @@ export default function NewInvoicePage() {
                     />
                   </div>
 
-                  {/* Quantity */}
+                  {/* Quantity with quick steppers */}
                   <div className="sm:col-span-2">
                     <label className="block text-[10px] uppercase font-bold text-slate-400 mb-1">
                       Qty
                     </label>
-                    <input
-                      type="text"
-                      inputMode="decimal"
-                      value={item.quantity}
-                      onChange={(e) => {
-                        const val = e.target.value;
-                        if (/^\d*\.?\d*$/.test(val)) {
-                          const updated = [...items];
-                          updated[idx].quantity = val;
-                          setItems(updated);
-                        }
-                      }}
-                      className={`w-full bg-slate-900 border rounded-xl px-2 py-2 text-xs text-white font-bold text-center focus:outline-none ${
-                        isExceeded ? 'border-rose-500 text-rose-300' : 'border-slate-800 focus:border-emerald-500'
-                      }`}
-                    />
+                    <div className={`flex items-stretch bg-slate-900 border rounded-xl overflow-hidden ${
+                      isExceeded ? 'border-rose-500' : 'border-slate-800 focus-within:border-emerald-500'
+                    }`}>
+                      <button
+                        type="button"
+                        onClick={() => adjustQty(idx, -1)}
+                        className="px-2 text-slate-400 hover:text-white hover:bg-slate-800 transition text-sm font-bold select-none"
+                        tabIndex={-1}
+                      >
+                        −
+                      </button>
+                      <input
+                        type="text"
+                        inputMode="decimal"
+                        value={item.quantity}
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          if (/^\d*\.?\d*$/.test(val)) {
+                            const updated = [...items];
+                            updated[idx].quantity = val;
+                            setItems(updated);
+                          }
+                        }}
+                        className={`w-full min-w-0 bg-transparent px-1 py-2 text-xs font-bold text-center focus:outline-none ${
+                          isExceeded ? 'text-rose-300' : 'text-white'
+                        }`}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => adjustQty(idx, 1)}
+                        className="px-2 text-slate-400 hover:text-white hover:bg-slate-800 transition text-sm font-bold select-none"
+                        tabIndex={-1}
+                      >
+                        +
+                      </button>
+                    </div>
                   </div>
 
                   {/* Unit Price */}
@@ -600,26 +609,62 @@ export default function NewInvoicePage() {
                   </div>
                 </div>
 
-                <div className="flex flex-wrap justify-between items-center text-xs pt-1.5 border-t border-slate-900 gap-2">
-                  <div className="flex items-center space-x-3 text-slate-500">
-                    <span>Available Stock: <span className={isExceeded ? 'text-rose-400 font-bold' : 'text-slate-300 font-semibold'}>{p?.stock_quantity || 0}</span></span>
-                    {p && (
-                      <span className="text-slate-400 border-l border-slate-800 pl-3">
-                        Cost: <span className="font-semibold text-slate-300">{currency} {(p.purchase_price ?? p.cost_price ?? 0)}</span>
-                      </span>
-                    )}
-                  </div>
-                  <div className="flex items-center space-x-3">
-                    {p && (
-                      <span className="text-slate-400 text-[11px]">
-                        Line Profit: <span className="font-bold text-emerald-400">{currency} {(lineTotal - (qNum * (p.purchase_price ?? p.cost_price ?? 0))).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })}</span>
-                      </span>
-                    )}
-                    <span className="font-extrabold text-emerald-400 text-sm">
-                      Total: {currency} {lineTotal.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })}
-                    </span>
-                  </div>
-                </div>
+                {/* Live Stock Meter — updates instantly as quantity changes */}
+                {p && (() => {
+                  const available = p.stock_quantity;
+                  const remaining = available - qNum;
+                  const usedPct = available > 0
+                    ? Math.min(100, (qNum / available) * 100)
+                    : (qNum > 0 ? 100 : 0);
+                  const barColor = remaining < 0
+                    ? 'bg-rose-500'
+                    : remaining === 0
+                      ? 'bg-amber-500'
+                      : remaining <= available * 0.2
+                        ? 'bg-amber-400'
+                        : 'bg-emerald-500';
+                  const remainLabel = remaining < 0
+                    ? `Short by ${Math.abs(remaining)}`
+                    : `${remaining} left after sale`;
+                  const remainColor = remaining < 0
+                    ? 'text-rose-400'
+                    : remaining <= available * 0.2
+                      ? 'text-amber-400'
+                      : 'text-emerald-400';
+
+                  return (
+                    <div className="pt-2 border-t border-slate-900 space-y-2">
+                      <div className="flex items-center justify-between text-[11px]">
+                        <span className="text-slate-400">
+                          In stock: <span className="font-bold text-slate-200">{available}</span>
+                          <span className="text-slate-600 mx-1.5">•</span>
+                          Using: <span className="font-bold text-slate-200">{qNum || 0}</span>
+                        </span>
+                        <span className={`font-extrabold ${remainColor}`}>
+                          {remainLabel}
+                        </span>
+                      </div>
+                      {/* Progress bar */}
+                      <div className="h-1.5 w-full bg-slate-800 rounded-full overflow-hidden">
+                        <div
+                          className={`h-full rounded-full transition-all duration-200 ${barColor}`}
+                          style={{ width: `${usedPct}%` }}
+                        />
+                      </div>
+
+                      <div className="flex flex-wrap justify-between items-center gap-2 pt-0.5">
+                        <span className="text-slate-500 text-[11px]">
+                          Cost: <span className="font-semibold text-slate-300">{currency} {(p.purchase_price ?? p.cost_price ?? 0)}</span>
+                          <span className="text-slate-700 mx-2">|</span>
+                          Line Profit: <span className="font-bold text-emerald-400">{currency} {(lineTotal - (qNum * (p.purchase_price ?? p.cost_price ?? 0))).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })}</span>
+                        </span>
+                        <span className="font-extrabold text-emerald-400 text-sm">
+                          Total: {currency} {lineTotal.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })}
+                        </span>
+                      </div>
+                    </div>
+                  );
+                })()}
               </div>
             );
           })}
@@ -653,70 +698,51 @@ export default function NewInvoicePage() {
               />
             </div>
 
-            {/* Signature & Stamp Selectors with Persistence */}
-            <div className="grid grid-cols-2 gap-4 pt-2 border-t border-slate-800">
-              {/* Signature Options */}
-              <div className="space-y-2">
-                <div className="flex items-center justify-between">
-                  <label className="text-[11px] font-bold uppercase text-slate-300 flex items-center space-x-1.5">
+            {/* Signature & Company Seal — managed in Settings, applied automatically */}
+            <div className="pt-3 border-t border-slate-800 space-y-3">
+              <div className="flex items-center justify-between">
+                <span className="text-[11px] font-bold uppercase text-slate-300">Signature & Company Seal</span>
+                <Link href="/settings" className="text-[11px] text-emerald-400 hover:text-emerald-300 font-semibold">
+                  Manage in Settings →
+                </Link>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                {/* Signature status + per-invoice toggle */}
+                <label className="flex items-center justify-between bg-slate-950 border border-slate-800 rounded-xl px-3 py-2.5 cursor-pointer">
+                  <span className="flex items-center space-x-2">
                     <input
                       type="checkbox"
                       checked={includeSignature}
-                      onChange={(e) => {
-                        const val = e.target.checked;
-                        setIncludeSignature(val);
-                        persistSignatureStampPreferences(val, includeStamp, signatureUrl, stampUrl);
-                      }}
+                      onChange={(e) => setIncludeSignature(e.target.checked)}
                       className="rounded border-slate-700 bg-slate-950 text-emerald-500 focus:ring-emerald-500"
                     />
-                    <span>Include Signature</span>
-                  </label>
-                </div>
+                    <span className="text-[11px] font-bold text-slate-300">Signature</span>
+                  </span>
+                  {signatureUrl ? (
+                    <img src={signatureUrl} alt="Signature" className="h-6 max-w-[70px] object-contain bg-white rounded px-0.5" />
+                  ) : (
+                    <span className="text-[10px] text-amber-400">Not set</span>
+                  )}
+                </label>
 
-                {includeSignature && (
-                  <label className="flex flex-col items-center justify-center p-3 border-2 border-dashed border-slate-800 rounded-xl cursor-pointer hover:border-emerald-500 bg-slate-950 transition">
-                    <Upload size={18} className="text-slate-400 mb-1" />
-                    <span className="text-[10px] text-slate-400">{signatureUrl ? 'Signature Loaded (Saved)' : 'Choose file'}</span>
-                    <input
-                      type="file"
-                      accept="image/*"
-                      onChange={(e) => handleImageUpload(e, setSignatureUrl, true)}
-                      className="hidden"
-                    />
-                  </label>
-                )}
-              </div>
-
-              {/* Stamp Options */}
-              <div className="space-y-2">
-                <div className="flex items-center justify-between">
-                  <label className="text-[11px] font-bold uppercase text-slate-300 flex items-center space-x-1.5">
+                {/* Stamp status + per-invoice toggle */}
+                <label className="flex items-center justify-between bg-slate-950 border border-slate-800 rounded-xl px-3 py-2.5 cursor-pointer">
+                  <span className="flex items-center space-x-2">
                     <input
                       type="checkbox"
                       checked={includeStamp}
-                      onChange={(e) => {
-                        const val = e.target.checked;
-                        setIncludeStamp(val);
-                        persistSignatureStampPreferences(includeSignature, val, signatureUrl, stampUrl);
-                      }}
+                      onChange={(e) => setIncludeStamp(e.target.checked)}
                       className="rounded border-slate-700 bg-slate-950 text-emerald-500 focus:ring-emerald-500"
                     />
-                    <span>Include Stamp</span>
-                  </label>
-                </div>
-
-                {includeStamp && (
-                  <label className="flex flex-col items-center justify-center p-3 border-2 border-dashed border-slate-800 rounded-xl cursor-pointer hover:border-emerald-500 bg-slate-950 transition">
-                    <Upload size={18} className="text-slate-400 mb-1" />
-                    <span className="text-[10px] text-slate-400">{stampUrl ? 'Stamp Loaded (Saved)' : 'Choose file'}</span>
-                    <input
-                      type="file"
-                      accept="image/*"
-                      onChange={(e) => handleImageUpload(e, setStampUrl, false)}
-                      className="hidden"
-                    />
-                  </label>
-                )}
+                    <span className="text-[11px] font-bold text-slate-300">Company Seal</span>
+                  </span>
+                  {stampUrl ? (
+                    <img src={stampUrl} alt="Company Seal" className="h-6 max-w-[70px] object-contain bg-white rounded px-0.5" />
+                  ) : (
+                    <span className="text-[10px] text-amber-400">Not set</span>
+                  )}
+                </label>
               </div>
             </div>
           </div>

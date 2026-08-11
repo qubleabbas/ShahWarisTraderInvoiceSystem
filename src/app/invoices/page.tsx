@@ -370,7 +370,9 @@ export default function InvoicesPage() {
             No invoices found matching criteria.
           </div>
         ) : (
-          <div className="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden shadow-card">
+          <>
+          {/* Desktop / tablet table */}
+          <div className="hidden md:block bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden shadow-card">
             <div className="overflow-x-auto">
               <table className="w-full text-left text-sm text-slate-300">
                 <thead className="bg-slate-950/70 text-slate-400 text-xs font-semibold uppercase border-b border-slate-800">
@@ -493,6 +495,100 @@ export default function InvoicesPage() {
               </table>
             </div>
           </div>
+
+          {/* Mobile card list */}
+          <div className="md:hidden space-y-3">
+            {filteredInvoices.map((inv) => {
+              const isSelected = selectedIds.includes(inv.id!);
+              const statusClass =
+                inv.status === 'Paid'
+                  ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
+                  : inv.status === 'Overdue'
+                  ? 'bg-rose-500/10 text-rose-400 border border-rose-500/20'
+                  : 'bg-amber-500/10 text-amber-400 border border-amber-500/20';
+              return (
+                <div
+                  key={inv.id}
+                  className={`rounded-2xl border p-4 shadow-card transition ${
+                    isSelected ? 'border-emerald-500/40 bg-slate-800/40' : 'border-slate-800 bg-slate-900'
+                  }`}
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="flex items-start gap-2.5">
+                      <button
+                        onClick={() => toggleSelectOne(inv.id!)}
+                        className="mt-0.5 text-slate-400 hover:text-emerald-400"
+                        aria-label="Select invoice"
+                      >
+                        {isSelected ? <CheckSquare size={18} className="text-emerald-400" /> : <Square size={18} />}
+                      </button>
+                      <div className="min-w-0">
+                        <Link href={`/invoices/${inv.id}`} className="font-bold text-white hover:text-emerald-400">
+                          {inv.invoice_number}
+                        </Link>
+                        <p className="truncate text-xs text-slate-400">{inv.customer_name}</p>
+                        <p className="text-[11px] text-slate-500">{new Date(inv.created_at).toLocaleDateString()}</p>
+                      </div>
+                    </div>
+                    <div className="shrink-0 text-right">
+                      <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-bold ${statusClass}`}>
+                        {inv.status}
+                      </span>
+                      <p className="mt-1 font-extrabold text-white">
+                        {currency} {inv.total_amount.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-slate-800 pt-3">
+                    {inv.status !== 'Paid' && (
+                      <button
+                        onClick={() => handleMarkAsPaid(inv.id!)}
+                        className="flex items-center gap-1 rounded-lg bg-emerald-600/20 px-2.5 py-1.5 text-xs font-semibold text-emerald-400 transition hover:bg-emerald-600 hover:text-white"
+                      >
+                        <CheckCircle size={14} /><span>Paid</span>
+                      </button>
+                    )}
+                    <Link
+                      href={`/invoices/${inv.id}`}
+                      className="flex items-center gap-1 rounded-lg bg-slate-800 px-2.5 py-1.5 text-xs font-semibold text-slate-200 transition hover:bg-slate-700"
+                    >
+                      <Eye size={14} /><span>View</span>
+                    </Link>
+                    <button
+                      onClick={() => handleBulkExportPdf([inv.id!])}
+                      className="rounded-lg bg-slate-800 p-2 text-emerald-400 transition hover:bg-slate-700"
+                      aria-label="Export PDF"
+                    >
+                      <Download size={16} />
+                    </button>
+                    <button
+                      onClick={() => handlePrintInvoices([inv.id!])}
+                      className="rounded-lg bg-slate-800 p-2 text-slate-300 transition hover:bg-slate-700"
+                      aria-label="Print"
+                    >
+                      <Printer size={16} />
+                    </button>
+                    <Link
+                      href={`/invoices/${inv.id}/edit`}
+                      className="rounded-lg bg-slate-800 p-2 text-amber-400 transition hover:bg-slate-700"
+                      aria-label="Edit"
+                    >
+                      <Edit2 size={16} />
+                    </Link>
+                    <button
+                      onClick={() => handleDeleteInvoice(inv.id!)}
+                      className="ml-auto rounded-lg bg-slate-800 p-2 text-slate-400 transition hover:bg-rose-900/50 hover:text-rose-400"
+                      aria-label="Delete"
+                    >
+                      <Trash2 size={16} />
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+          </>
         )}
       </div>
 

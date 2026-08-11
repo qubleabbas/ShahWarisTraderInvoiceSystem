@@ -11,7 +11,11 @@ import {
   CheckCircle,
   Clock,
   Sparkles,
-  Edit2
+  Edit2,
+  MessageCircle,
+  Briefcase,
+  Mail,
+  X
 } from 'lucide-react';
 import { db, Invoice, InvoiceItem, Customer, Product, Category } from '@/lib/db';
 import InvoiceTemplate from '@/components/InvoiceTemplate';
@@ -114,22 +118,93 @@ export default function SingleInvoicePage() {
     showToast(`Invoice #${invoice.invoice_number} marked as ${newStatus}!`, 'success');
   }
 
-  // Web Share API (WhatsApp / Email / Mobile)
-  async function handleShareInvoice() {
-    if (navigator.share && invoice) {
-      try {
-        await navigator.share({
-          title: `Invoice #${invoice.invoice_number}`,
-          text: `Invoice #${invoice.invoice_number} for ${customer?.name || 'Customer'}. Grand Total: ${businessInfo.currency} ${invoice.total_amount}.`,
-          url: window.location.href,
-        });
-      } catch (err) {
-        console.log("Share dismissed");
+  const [showShareModal, setShowShareModal] = useState(false);
+  const [isSharing, setIsSharing] = useState(false);
+
+  // Open the share options popup (WhatsApp / WhatsApp Business / Email)
+  function handleShareInvoice() {
+    setShowShareModal(true);
+  }
+
+  // Generate the invoice PDF as a File (same vector output as Export/Print)
+  async function generatePdfFile(): Promise<File> {
+    if (!invoice) throw new Error("Invoice not loaded");
+    const res = await fetch('/api/generate-pdf', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ invoices: [{ invoice, customer, items, businessInfo }] })
+    });
+    if (!res.ok) {
+      const errData = await res.json().catch(() => ({}));
+      throw new Error(errData.error || "Failed to generate PDF");
+    }
+    const blob = await res.blob();
+    return new File([blob], `Invoice-${invoice.invoice_number}.pdf`, { type: 'application/pdf' });
+  }
+
+  // Share the invoice PDF through the chosen channel
+  async function shareViaChannel(channel: 'whatsapp' | 'whatsapp-business' | 'email') {
+    if (!invoice || isSharing) return;
+    setIsSharing(true);
+    showToast("Preparing invoice PDF...", "info");
+
+    const message =
+      `Invoice #${invoice.invoice_number} for ${customer?.name || invoice.customer_name || 'Customer'}\n` +
+      `Grand Total: ${businessInfo.currency} ${invoice.total_amount.toLocaleString()}\n\n` +
+      `Thank you for your business — ${businessInfo.name}`;
+
+    try {
+      const file = await generatePdfFile();
+
+      // Preferred path: attach the real PDF via the Web Share API (mobile)
+      const shareData: ShareData & { files?: File[] } = {
+        title: `Invoice #${invoice.invoice_number}`,
+        text: message,
+        files: [file]
+      };
+
+      if (
+        typeof navigator !== 'undefined' &&
+        navigator.canShare &&
+        navigator.canShare({ files: [file] })
+      ) {
+        await navigator.share(shareData);
+        setShowShareModal(false);
+        return;
       }
-    } else {
-      // Fallback to copying link
-      navigator.clipboard.writeText(window.location.href);
-      showToast("Invoice link copied to clipboard!", 'info');
+
+      // Fallback: download the PDF so it can be attached, then open the channel
+      const url = window.URL.createObjectURL(file);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = file.name;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(url);
+
+      const encoded = encodeURIComponent(message);
+      if (channel === 'email') {
+        const subject = encodeURIComponent(`Invoice #${invoice.invoice_number} — ${businessInfo.name}`);
+        window.location.href = `mailto:?subject=${subject}&body=${encoded}`;
+        showToast("PDF downloaded — attach it to your email.", "info");
+      } else if (channel === 'whatsapp-business') {
+        window.open(`https://api.whatsapp.com/send?text=${encoded}`, '_blank');
+        showToast("PDF downloaded — attach it in WhatsApp Business.", "info");
+      } else {
+        window.open(`https://wa.me/?text=${encoded}`, '_blank');
+        showToast("PDF downloaded — attach it in WhatsApp.", "info");
+      }
+      setShowShareModal(false);
+    } catch (err: any) {
+      if (err?.name === 'AbortError') {
+        // User dismissed the native share sheet — no error
+        return;
+      }
+      console.error(err);
+      showToast(err.message || "Failed to share invoice", "error");
+    } finally {
+      setIsSharing(false);
     }
   }
 
@@ -291,6 +366,74 @@ export default function SingleInvoicePage() {
         items={items}
         businessInfo={businessInfo}
       />
+
+      {/* Share Options Popup */}
+      {showShareModal && (
+        <div
+          className="no-print fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/60 backdrop-blur-sm p-4"
+          onClick={() => !isSharing && setShowShareModal(false)}
+        >
+          <div
+            className="w-full max-w-sm bg-slate-900 border border-slate-800 rounded-2xl shadow-2xl p-5 space-y-4"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between">
+              <div>
+                <h3 className="text-white font-extrabold text-lg">Share Invoice</h3>
+                <p className="text-xs text-slate-400">Send Invoice #{invoice.invoice_number} as PDF</p>
+              </div>
+              <button
+                onClick={() => !isSharing && setShowShareModal(false)}
+                className="p-2 rounded-xl bg-slate-800 text-slate-400 hover:text-white transition disabled:opacity-50"
+                disabled={isSharing}
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="space-y-2.5">
+              <button
+                onClick={() => shareViaChannel('whatsapp')}
+                disabled={isSharing}
+                className="w-full flex items-center space-x-3 px-4 py-3 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 transition disabled:opacity-50"
+              >
+                <span className="p-2 rounded-lg bg-emerald-500/20 text-emerald-400">
+                  <MessageCircle size={20} />
+                </span>
+                <span className="text-sm font-semibold text-white">WhatsApp</span>
+              </button>
+
+              <button
+                onClick={() => shareViaChannel('whatsapp-business')}
+                disabled={isSharing}
+                className="w-full flex items-center space-x-3 px-4 py-3 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 transition disabled:opacity-50"
+              >
+                <span className="p-2 rounded-lg bg-teal-500/20 text-teal-400">
+                  <Briefcase size={20} />
+                </span>
+                <span className="text-sm font-semibold text-white">WhatsApp Business</span>
+              </button>
+
+              <button
+                onClick={() => shareViaChannel('email')}
+                disabled={isSharing}
+                className="w-full flex items-center space-x-3 px-4 py-3 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 transition disabled:opacity-50"
+              >
+                <span className="p-2 rounded-lg bg-sky-500/20 text-sky-400">
+                  <Mail size={20} />
+                </span>
+                <span className="text-sm font-semibold text-white">Email</span>
+              </button>
+            </div>
+
+            {isSharing && (
+              <p className="text-xs text-center text-slate-400 animate-pulse">
+                Generating PDF and opening share…
+              </p>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

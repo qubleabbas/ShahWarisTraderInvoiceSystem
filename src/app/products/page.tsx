@@ -276,7 +276,9 @@ export default function ProductsPage() {
           No products found matching criteria.
         </div>
       ) : (
-        <div className="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden shadow-card">
+        <>
+        {/* Desktop / tablet table */}
+        <div className="hidden md:block bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden shadow-card">
           <div className="overflow-x-auto">
             <table className="w-full text-left text-sm text-slate-300">
               <thead className="bg-slate-950/70 text-slate-400 text-xs font-semibold uppercase border-b border-slate-800">
@@ -382,12 +384,97 @@ export default function ProductsPage() {
             </table>
           </div>
         </div>
+
+        {/* Mobile card list */}
+        <div className="md:hidden space-y-3">
+          {filteredProducts.map((p) => {
+            const isLowStock = p.stock_quantity <= (p.min_stock_warning || 10);
+            const purPrice = p.purchase_price ?? p.cost_price ?? 0;
+            const unitProfit = p.price - purPrice;
+            const marginPct = p.price > 0 ? (unitProfit / p.price) * 100 : 0;
+
+            return (
+              <div key={p.id} className="rounded-2xl border border-slate-800 bg-slate-900 p-4 shadow-card">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2">
+                      <h3 className="truncate font-bold text-white">{p.name}</h3>
+                      {isLowStock && (
+                        <span className="rounded bg-rose-500/10 p-1 text-rose-400" title="Low Stock">
+                          <AlertTriangle size={12} />
+                        </span>
+                      )}
+                    </div>
+                    <p className="mt-0.5 text-xs text-slate-400">
+                      {categoryMap.get(p.category_id) || 'Unassigned'} · {p.unit}
+                    </p>
+                  </div>
+                  <span
+                    className={`shrink-0 rounded-full px-2.5 py-1 text-[11px] font-bold ${
+                      isLowStock
+                        ? 'bg-rose-500/10 text-rose-400 border border-rose-500/20'
+                        : 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
+                    }`}
+                  >
+                    {p.stock_quantity} left
+                  </span>
+                </div>
+
+                <div className="mt-3 grid grid-cols-3 gap-2 rounded-xl border border-slate-800 bg-slate-950 p-3 text-center">
+                  <div>
+                    <p className="text-[10px] uppercase text-slate-500">Purchase</p>
+                    <p className="text-xs font-bold text-slate-300">{currency} {purPrice.toLocaleString()}</p>
+                  </div>
+                  <div>
+                    <p className="text-[10px] uppercase text-slate-500">Sale</p>
+                    <p className="text-xs font-bold text-white">{currency} {p.price.toLocaleString()}</p>
+                  </div>
+                  <div>
+                    <p className="text-[10px] uppercase text-slate-500">Profit</p>
+                    <p className="text-xs font-black text-emerald-400">{currency} {unitProfit.toLocaleString()}</p>
+                    <p className="text-[9px] text-slate-500">{marginPct.toFixed(0)}%</p>
+                  </div>
+                </div>
+
+                <div className="mt-3 flex items-center gap-2 border-t border-slate-800 pt-3">
+                  <button
+                    onClick={() => { setViewingProduct(p); setIsDetailModalOpen(true); }}
+                    className="flex items-center gap-1 rounded-lg bg-slate-800 px-2.5 py-1.5 text-xs font-semibold text-slate-200 transition hover:bg-slate-700"
+                  >
+                    <Eye size={14} /><span>Details</span>
+                  </button>
+                  <button
+                    onClick={() => handleOpenModal(p, 'restock')}
+                    className="flex items-center gap-1 rounded-lg bg-emerald-600/20 px-2.5 py-1.5 text-xs font-semibold text-emerald-400 transition hover:bg-emerald-600 hover:text-white"
+                  >
+                    <Plus size={14} /><span>Stock</span>
+                  </button>
+                  <button
+                    onClick={() => handleOpenModal(p, 'details')}
+                    className="ml-auto rounded-lg bg-slate-800 p-2 text-slate-300 transition hover:bg-slate-700 hover:text-emerald-400"
+                    aria-label="Edit"
+                  >
+                    <Edit2 size={16} />
+                  </button>
+                  <button
+                    onClick={() => handleDeleteProduct(p.id!)}
+                    className="rounded-lg bg-slate-800 p-2 text-slate-400 transition hover:bg-rose-900/50 hover:text-rose-400"
+                    aria-label="Delete"
+                  >
+                    <Trash2 size={16} />
+                  </button>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+        </>
       )}
 
       {/* Add / Edit Product Modal with Restock Weighted Average Calculator */}
       {isModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm">
-          <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-lg p-6 shadow-2xl space-y-4">
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-lg p-5 sm:p-6 shadow-2xl space-y-4 max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between border-b border-slate-800 pb-3">
               <h2 className="text-xl font-bold text-white">
                 {editingProduct

@@ -3,7 +3,7 @@ import { StyleSheet } from '@react-pdf/renderer';
 export const styles = StyleSheet.create({
   page: {
     paddingTop: 28,
-    paddingBottom: 95, // Space reserved for fixed footer at bottom
+    paddingBottom: 100, // Reserved space for the fixed Terms footer on every page
     paddingHorizontal: 28,
     fontFamily: 'Helvetica',
     fontSize: 9,
@@ -182,6 +182,8 @@ export const styles = StyleSheet.create({
   totalsContainer: {
     flexDirection: 'row',
     justifyContent: 'flex-end',
+    alignItems: 'flex-end',
+    gap: 18,
     marginTop: 4,
     marginBottom: 14
   },
@@ -233,19 +235,19 @@ export const styles = StyleSheet.create({
     color: '#047857'
   },
 
-  // Repeating Fixed Footer
+  // Fixed footer repeated on every page (Terms & Conditions only, bounded height)
   footer: {
     position: 'absolute',
     bottom: 24,
-    left: 36,
-    right: 36,
+    left: 28,
+    right: 28,
     borderTopWidth: 1,
     borderTopColor: '#e2e8f0',
     paddingTop: 8,
     flexDirection: 'column'
   },
   termsContainer: {
-    marginBottom: 6
+    marginBottom: 0
   },
   termsTitle: {
     fontSize: 7.5,
@@ -263,13 +265,16 @@ export const styles = StyleSheet.create({
     borderColor: '#f1f5f9',
     borderRadius: 4,
     padding: 5,
-    lineHeight: 1.3
+    lineHeight: 1.3,
+    maxLines: 4, // Bounds the fixed footer height so it never overflows its reserved space
+    textOverflow: 'ellipsis'
   },
   signatureRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'flex-end',
-    marginTop: 4,
+    marginTop: 10,
+    marginBottom: 6,
     minHeight: 40
   },
   stampBox: {
@@ -305,21 +310,19 @@ export const styles = StyleSheet.create({
     marginTop: 2
   },
 
-  // Paid Watermark Stamp
-  paidStampOverlay: {
-    position: 'absolute',
-    bottom: 120,
-    right: 40,
+  // Paid Stamp — sits inline next to the Grand Total totals box
+  paidStamp: {
     borderWidth: 3,
     borderStyle: 'solid',
     borderColor: '#059669',
     color: '#059669',
-    fontSize: 24,
+    fontSize: 22,
     fontWeight: 'bold',
     paddingHorizontal: 16,
     paddingVertical: 4,
     borderRadius: 6,
-    opacity: 0.75,
-    transform: 'rotate(-12deg)'
+    opacity: 0.8,
+    transform: 'rotate(-12deg)',
+    marginBottom: 6
   }
 });
