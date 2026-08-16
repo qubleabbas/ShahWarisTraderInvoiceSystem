@@ -1,8 +1,8 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, Suspense } from 'react';
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
+import { usePathname, useSearchParams } from 'next/navigation';
 import {
   LayoutDashboard,
   Package,
@@ -24,8 +24,9 @@ import { subscribeSyncStatus, SyncStatus } from '@/lib/gdrive';
 
 import { db } from '@/lib/db';
 
-export default function Sidebar() {
+function SidebarContent() {
   const pathname = usePathname();
+  const searchParams = useSearchParams();
   const [mobileOpen, setMobileOpen] = useState(false);
   const [syncStatus, setSyncStatus] = useState<SyncStatus>({ isLoggedIn: false, isSyncing: false });
   const [businessName, setBusinessName] = useState('Qureshi');
@@ -59,8 +60,7 @@ export default function Sidebar() {
   const navItems = [
     { name: 'Dashboard', href: '/', icon: LayoutDashboard },
     { name: 'Billing & Invoices', href: '/invoices', icon: FileText },
-    { name: 'Products', href: '/products', icon: Package },
-    { name: 'Categories', href: '/categories', icon: FolderTree },
+    { name: 'Products & Stock', href: '/products', icon: Package },
     { name: 'Customers', href: '/customers', icon: Users },
     { name: 'Sales Analytics', href: '/sales', icon: BarChart3 },
     { name: 'Settings & Cloud', href: '/settings', icon: Settings },
@@ -98,24 +98,24 @@ export default function Sidebar() {
       {mobileOpen && (
         <div
           onClick={() => setMobileOpen(false)}
-          className="lg:hidden no-print fixed inset-0 z-40 bg-black/60 backdrop-blur-sm transition-opacity"
+          className="lg:hidden fixed inset-0 z-40 bg-black/60 backdrop-blur-sm"
         />
       )}
 
-      {/* Main Sidebar Container */}
+      {/* Sidebar Container */}
       <aside
-        className={`no-print fixed top-0 bottom-0 left-0 z-50 w-64 bg-slate-900 border-r border-slate-800 flex flex-col justify-between transition-transform duration-300 ease-in-out ${
-          mobileOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'
-        }`}
+        className={`fixed top-0 bottom-0 left-0 z-50 w-64 bg-slate-900 border-r border-slate-800 flex flex-col transition-transform duration-300 ease-in-out lg:translate-x-0 ${
+          mobileOpen ? 'translate-x-0' : '-translate-x-full'
+        } no-print`}
       >
         <div className="flex flex-col flex-1 overflow-y-auto">
-          {/* Brand Logo Header */}
-          <div className="p-6 border-b border-slate-800/80 flex items-center space-x-3">
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-emerald-700 to-emerald-500 flex items-center justify-center text-white font-extrabold text-xl shadow-lg shadow-emerald-900/40 flex-shrink-0">
-              <FlaskConical size={22} className="text-emerald-100" />
+          {/* Business Branding */}
+          <div className="p-5 border-b border-slate-800 flex items-center space-x-3 bg-slate-900/50">
+            <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-emerald-600 to-emerald-400 flex items-center justify-center text-white font-black text-xl shadow-lg shadow-emerald-900/40">
+              {businessName.charAt(0)}
             </div>
-            <div className="overflow-hidden">
-              <h1 className="font-extrabold text-base text-white tracking-tight leading-tight truncate">
+            <div className="min-w-0 flex-1">
+              <h1 className="font-extrabold text-white text-base tracking-tight truncate leading-tight">
                 {businessName}
               </h1>
               <p className="text-[10px] font-medium text-emerald-400 mt-0.5 uppercase tracking-wider truncate">
@@ -194,5 +194,13 @@ export default function Sidebar() {
         </div>
       </aside>
     </>
+  );
+}
+
+export default function Sidebar() {
+  return (
+    <Suspense fallback={<div className="w-64 bg-slate-900 border-r border-slate-800" />}>
+      <SidebarContent />
+    </Suspense>
   );
 }

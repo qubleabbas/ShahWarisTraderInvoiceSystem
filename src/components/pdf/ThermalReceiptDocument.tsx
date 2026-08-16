@@ -229,9 +229,13 @@ export default function ThermalReceiptDocument({ invoices }: ThermalReceiptDocum
             <Text style={styles.customerText}>
               Phone: {customer?.phone || invoice.customer_phone || 'N/A'}
             </Text>
-            {customer?.ntn_number && customer.ntn_number.trim() !== '' ? (
-              <Text style={styles.customerText}>NTN: {customer.ntn_number.trim()}</Text>
-            ) : null}
+            {(() => {
+              const ntn = customer?.ntn_number?.trim();
+              const stn = customer?.stn_number?.trim();
+              if (!ntn && !stn) return null;
+              const taxText = [ntn ? `NTN: ${ntn}` : '', stn ? `STN: ${stn}` : ''].filter(Boolean).join(' | ');
+              return <Text style={styles.customerText}>{taxText}</Text>;
+            })()}
 
             <View style={styles.divider} />
 
@@ -308,6 +312,13 @@ export default function ThermalReceiptDocument({ invoices }: ThermalReceiptDocum
                 </View>
               )
               : null}
+
+            {invoice.include_previous_balance && (invoice.previous_balance || 0) > 0 ? (
+              <View style={styles.totalRow}>
+                <Text style={styles.totalLabel}>Pending Amt</Text>
+                <Text style={styles.totalValue}>+{money(invoice.previous_balance || 0)}</Text>
+              </View>
+            ) : null}
 
             <View style={styles.dividerSolid} />
             <View style={styles.grandRow}>

@@ -127,11 +127,13 @@ export default function InvoiceTemplate({
           <p className="font-bold text-sm text-slate-900">{customer?.name || invoice.customer_name || 'Walk-in Customer'}</p>
           <p className="text-xs text-slate-600 mt-0.5">{customer?.address || invoice.customer_address || 'No address specified'}</p>
           <p className="text-xs text-slate-600 font-medium mt-0.5">Phone: {customer?.phone || invoice.customer_phone || 'N/A'}</p>
-          {customer?.ntn_number && customer.ntn_number.trim() !== '' && (
-            <p className="text-xs text-slate-600 font-medium mt-0.5">
-              <span className="font-bold">NTN:</span> {customer.ntn_number.trim()}
-            </p>
-          )}
+          {(() => {
+            const ntn = customer?.ntn_number?.trim();
+            const stn = customer?.stn_number?.trim();
+            if (!ntn && !stn) return null;
+            const taxText = [ntn ? `NTN: ${ntn}` : '', stn ? `STN: ${stn}` : ''].filter(Boolean).join(' | ');
+            return <p className="text-xs text-slate-600 font-medium mt-0.5">{taxText}</p>;
+          })()}
         </div>
 
         {/* Itemized Table */}
@@ -222,6 +224,13 @@ export default function InvoiceTemplate({
                 <span className="font-bold text-slate-800">+{businessInfo.currency} {invoice.tax_amount.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })}</span>
               </div>
             ) : null}
+
+            {invoice.include_previous_balance && (invoice.previous_balance || 0) > 0 && (
+              <div className="flex justify-between text-amber-700 font-bold pt-1 border-t border-slate-200">
+                <span>Pending Amount:</span>
+                <span>+{businessInfo.currency} {(invoice.previous_balance || 0).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })}</span>
+              </div>
+            )}
 
             <div className="pt-1.5 border-t border-slate-300 flex justify-between text-sm font-black text-slate-900">
               <span>Grand Total:</span>

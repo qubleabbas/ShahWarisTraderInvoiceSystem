@@ -28,10 +28,9 @@ export const styles = StyleSheet.create({
     gap: 10
   },
   logo: {
-    width: 48,
-    height: 48,
-    objectFit: 'contain',
-    borderRadius: 6
+    maxWidth: 160,
+    maxHeight: 60,
+    objectFit: 'contain'
   },
   businessDetails: {
     flexDirection: 'column',

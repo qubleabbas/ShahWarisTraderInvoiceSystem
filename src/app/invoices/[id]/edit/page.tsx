@@ -15,7 +15,7 @@ import {
 } from 'lucide-react';
 import { db, Product, Customer, Invoice, InvoiceItem, Category, City, InvoiceTax, notifyDbMutation, recordTombstone } from '@/lib/db';
 import { useToast } from '@/components/ToastProvider';
-import { reconcileInvoiceStatus, round2 } from '@/lib/ledger';
+import { reconcileInvoiceStatus, round2, getCustomerPendingBalance } from '@/lib/ledger';
 import SearchableProductSelect from '@/components/SearchableProductSelect';
 import SearchableCustomerSelect from '@/components/SearchableCustomerSelect';
 import SearchableCitySelect from '@/components/SearchableCitySelect';
@@ -52,6 +52,28 @@ export default function EditInvoicePage() {
   const [overallDiscountType, setOverallDiscountType] = useState<'percent' | 'fixed'>('percent');
   const [taxes, setTaxes] = useState<TaxLine[]>([]);
 
+  // Customer Pending Balance State
+  const [customerPendingBalance, setCustomerPendingBalance] = useState<number>(0);
+  const [includePendingBalance, setIncludePendingBalance] = useState<boolean>(false);
+
+  useEffect(() => {
+    async function loadPendingBalance() {
+      if (!customerId) {
+        setCustomerPendingBalance(0);
+        setIncludePendingBalance(false);
+        return;
+      }
+      const balance = await getCustomerPendingBalance(customerId, id);
+      setCustomerPendingBalance(balance);
+      if (balance <= 0) {
+        setIncludePendingBalance(false);
+      }
+    }
+    if (id) {
+      loadPendingBalance();
+    }
+  }, [customerId, id]);
+
   // Signature & Stamp Toggles and URLs
   const [includeSignature, setIncludeSignature] = useState<boolean>(true);
   const [includeStamp, setIncludeStamp] = useState<boolean>(true);
@@ -69,6 +91,7 @@ export default function EditInvoicePage() {
   const [newCustAddress, setNewCustAddress] = useState('');
   const [newCustCityId, setNewCustCityId] = useState<number | undefined>(undefined);
   const [newCustNtn, setNewCustNtn] = useState('');
+  const [newCustStn, setNewCustStn] = useState('');
   const [newCustDiscount, setNewCustDiscount] = useState('');
 
   const [loading, setLoading] = useState(true);
@@ -122,6 +145,9 @@ export default function EditInvoicePage() {
       setStampUrl(inv.stamp_url || '');
       setIncludeSignature(!!inv.signature_url);
       setIncludeStamp(!!inv.stamp_url);
+      if (inv.include_previous_balance) {
+        setIncludePendingBalance(true);
+      }
 
       setOriginalItems(rawItems);
       setItems(
@@ -269,7 +295,9 @@ export default function EditInvoicePage() {
     0
   );
   const combinedTaxRate = taxes.reduce((sum, t) => sum + (parseFloat(t.rate) || 0), 0);
-  const grandTotal = Math.max(0, subtotalAfterDiscount + taxAmount);
+  const baseGrandTotal = Math.max(0, subtotalAfterDiscount + taxAmount);
+  const pendingAmountToAdd = (includePendingBalance && customerPendingBalance > 0) ? customerPendingBalance : 0;
+  const grandTotal = Math.max(0, baseGrandTotal + pendingAmountToAdd);
 
   // File Upload Helpers
   function handleImageUpload(e: React.ChangeEvent<HTMLInputElement>, setter: (val: string) => void, isSig: boolean) {
@@ -311,6 +339,7 @@ export default function EditInvoicePage() {
       address: newCustAddress.trim(),
       city_id: newCustCityId,
       ntn_number: newCustNtn.trim() || undefined,
+      stn_number: newCustStn.trim() || undefined,
       discount_percentage: parsedDisc,
       created_at: new Date().toISOString()
     });
@@ -337,6 +366,7 @@ export default function EditInvoicePage() {
     setNewCustAddress('');
     setNewCustCityId(undefined);
     setNewCustNtn('');
+    setNewCustStn('');
     setNewCustDiscount('');
   }
 
@@ -403,6 +433,8 @@ export default function EditInvoicePage() {
           tax_percent: combinedTaxRate,
           tax_amount: taxAmount,
           taxes: invoiceTaxes,
+          previous_balance: customerPendingBalance,
+          include_previous_balance: includePendingBalance && customerPendingBalance > 0,
           total_amount: grandTotal,
           status,
           terms_conditions: terms,
@@ -434,9 +466,10 @@ export default function EditInvoicePage() {
             line_total: lineTotal
           });
 
-          if (p) {
-            const updatedStock = Math.max(0, p.stock_quantity - q);
-            await db.products.update(p.id!, { stock_quantity: updatedStock });
+          const freshProduct = await db.products.get(item.product_id);
+          if (freshProduct) {
+            const updatedStock = Math.max(0, freshProduct.stock_quantity - q);
+            await db.products.update(freshProduct.id!, { stock_quantity: updatedStock });
           }
         }
 
@@ -639,6 +672,7 @@ export default function EditInvoicePage() {
                       selectedProductId={item.product_id}
                       onSelectProduct={(id) => handleProductChange(idx, id)}
                       currency={currency}
+                      effectiveStockMap={effectiveStockMap}
                     />
                   </div>
 
@@ -755,26 +789,58 @@ export default function EditInvoicePage() {
                   </div>
                 </div>
 
-                <div className="flex flex-wrap justify-between items-center text-xs pt-1.5 border-t border-slate-900 gap-2">
-                  <div className="flex items-center space-x-3 text-slate-500">
-                    <span>Effective Available Stock: <span className={isExceeded ? 'text-rose-400 font-bold' : 'text-slate-300 font-semibold'}>{availableEff}</span></span>
-                    {p && (
-                      <span className="text-slate-400 border-l border-slate-800 pl-3">
-                        Cost: <span className="font-semibold text-slate-300">{currency} {(p.purchase_price ?? p.cost_price ?? 0)}</span>
-                      </span>
-                    )}
-                  </div>
-                  <div className="flex items-center space-x-3">
-                    {p && (
-                      <span className="text-slate-400 text-[11px]">
-                        Line Profit: <span className="font-bold text-emerald-400">{currency} {(lineTotal - (qNum * (p.purchase_price ?? p.cost_price ?? 0))).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })}</span>
-                      </span>
-                    )}
-                    <span className="font-extrabold text-emerald-400 text-sm">
-                      Total: {currency} {lineTotal.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })}
-                    </span>
-                  </div>
-                </div>
+                {p && (() => {
+                  const available = availableEff;
+                  const remaining = available - qNum;
+                  const usedPct = available > 0
+                    ? Math.min(100, (qNum / available) * 100)
+                    : (qNum > 0 ? 100 : 0);
+                  const barColor = isExceeded
+                    ? 'bg-rose-500'
+                    : remaining === 0
+                      ? 'bg-amber-500'
+                      : 'bg-emerald-500';
+                  const remainLabel = isExceeded
+                    ? `Short by ${Math.abs(remaining)} units`
+                    : `${remaining} left after edit`;
+                  const remainColor = isExceeded
+                    ? 'text-rose-400 font-bold'
+                    : 'text-emerald-400 font-semibold';
+
+                  return (
+                    <div className="pt-2 border-t border-slate-900 space-y-2">
+                      <div className="flex items-center justify-between text-[11px]">
+                        <span className="text-slate-400">
+                          Available for Edit: <span className="font-bold text-slate-200">{availableEff}</span>
+                          <span className="text-slate-600 mx-1.5">•</span>
+                          Selected: <span className="font-bold text-slate-200">{qNum || 0}</span>
+                        </span>
+                        <span className={`font-extrabold ${remainColor}`}>
+                          {remainLabel}
+                        </span>
+                      </div>
+
+                      {/* Progress bar */}
+                      <div className="h-1.5 w-full bg-slate-800 rounded-full overflow-hidden">
+                        <div
+                          className={`h-full rounded-full transition-all duration-200 ${barColor}`}
+                          style={{ width: `${usedPct}%` }}
+                        />
+                      </div>
+
+                      <div className="flex flex-wrap justify-between items-center gap-2 pt-0.5">
+                        <span className="text-slate-500 text-[11px]">
+                          Cost: <span className="font-semibold text-slate-300">{currency} {(p.purchase_price ?? p.cost_price ?? 0)}</span>
+                          <span className="text-slate-700 mx-2">|</span>
+                          Line Profit: <span className="font-bold text-emerald-400">{currency} {(lineTotal - (qNum * (p.purchase_price ?? p.cost_price ?? 0))).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })}</span>
+                        </span>
+                        <span className="font-extrabold text-emerald-400 text-sm">
+                          Total: {currency} {lineTotal.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })}
+                        </span>
+                      </div>
+                    </div>
+                  );
+                })()}
               </div>
             );
           })}
@@ -945,6 +1011,37 @@ export default function EditInvoicePage() {
                 currency={currency}
               />
 
+              {/* Include Customer Pending Amount Box */}
+              <div className="bg-slate-950/80 border border-slate-800 rounded-xl p-3.5 space-y-2 my-2">
+                <div className="flex items-center justify-between">
+                  <label htmlFor="includePendingBalanceCheckboxEdit" className={`flex items-center space-x-2.5 ${customerPendingBalance > 0 ? 'cursor-pointer' : 'cursor-not-allowed opacity-60'}`}>
+                    <input
+                      type="checkbox"
+                      id="includePendingBalanceCheckboxEdit"
+                      disabled={customerPendingBalance <= 0}
+                      checked={includePendingBalance && customerPendingBalance > 0}
+                      onChange={(e) => setIncludePendingBalance(e.target.checked)}
+                      className="w-4 h-4 rounded border-slate-700 bg-slate-900 text-emerald-500 focus:ring-emerald-500 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+                    />
+                    <span className={`text-xs font-bold uppercase tracking-wider ${customerPendingBalance > 0 ? 'text-slate-200' : 'text-slate-500'}`}>
+                      Include Pending Amount
+                    </span>
+                  </label>
+                  <span className={`text-xs font-extrabold ${customerPendingBalance > 0 ? 'text-amber-400' : 'text-slate-500'}`}>
+                    {currency} {customerPendingBalance.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })}
+                  </span>
+                </div>
+
+                {includePendingBalance && customerPendingBalance > 0 ? (
+                  <div className="flex justify-between text-xs text-amber-400 font-bold pt-1 border-t border-slate-800/60">
+                    <span>Pending Amount</span>
+                    <span>+{currency} {customerPendingBalance.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })}</span>
+                  </div>
+                ) : customerPendingBalance <= 0 ? (
+                  <p className="text-[11px] text-slate-500 italic">No previous pending balance for this customer.</p>
+                ) : null}
+              </div>
+
               <div className="pt-3 border-t border-slate-800 flex justify-between items-center text-lg font-black">
                 <span className="text-white">Final Grand Total:</span>
                 <span className="text-emerald-400">{currency} {grandTotal.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })}</span>
@@ -1022,7 +1119,7 @@ export default function EditInvoicePage() {
                   className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-white"
                 />
               </div>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                 <div>
                   <label className="block text-xs font-semibold uppercase text-slate-400 mb-1">
                     NTN Number <span className="text-[10px] lowercase text-slate-500 font-normal ml-1 border border-slate-800 px-1.5 py-0.5 rounded">(Optional)</span>
@@ -1032,6 +1129,18 @@ export default function EditInvoicePage() {
                     placeholder="e.g. 1234567-8"
                     value={newCustNtn}
                     onChange={(e) => setNewCustNtn(e.target.value)}
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-white"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold uppercase text-slate-400 mb-1">
+                    STN Number <span className="text-[10px] lowercase text-slate-500 font-normal ml-1 border border-slate-800 px-1.5 py-0.5 rounded">(Optional)</span>
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="e.g. 9876543-2"
+                    value={newCustStn}
+                    onChange={(e) => setNewCustStn(e.target.value)}
                     className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-white"
                   />
                 </div>

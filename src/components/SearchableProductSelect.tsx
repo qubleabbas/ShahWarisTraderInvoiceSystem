@@ -10,6 +10,7 @@ interface SearchableProductSelectProps {
   selectedProductId: number;
   onSelectProduct: (productId: number) => void;
   currency?: string;
+  effectiveStockMap?: Map<number, number>;
 }
 
 export default function SearchableProductSelect({
@@ -17,7 +18,8 @@ export default function SearchableProductSelect({
   categories,
   selectedProductId,
   onSelectProduct,
-  currency = 'Rs.'
+  currency = 'Rs.',
+  effectiveStockMap
 }: SearchableProductSelectProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [search, setSearch] = useState('');
@@ -90,6 +92,7 @@ export default function SearchableProductSelect({
               filteredProducts.map((p) => {
                 const isSelected = p.id === selectedProductId;
                 const catName = categoryMap.get(p.category_id) || 'General';
+                const stockVal = effectiveStockMap ? (effectiveStockMap.get(p.id!) ?? p.stock_quantity) : p.stock_quantity;
 
                 return (
                   <button
@@ -111,7 +114,7 @@ export default function SearchableProductSelect({
                         <span>•</span>
                         <span className="text-emerald-400/90">{catName}</span>
                         <span>•</span>
-                        <span className="text-slate-300">Stock: {p.stock_quantity}</span>
+                        <span className="text-slate-300">Stock: {stockVal}</span>
                       </div>
                     </div>
                     <div className="flex items-center space-x-2 ml-2 flex-shrink-0">

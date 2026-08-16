@@ -53,8 +53,16 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'flex-start'
   },
+  businessLeft: {
+    flex: 1,
+    paddingRight: 10
+  },
+  headerRight: {
+    alignItems: 'flex-end',
+    minWidth: 170
+  },
   businessName: {
-    fontSize: 18,
+    fontSize: 16,
     fontWeight: 'bold',
     color: '#0f172a',
     letterSpacing: -0.5
@@ -62,10 +70,11 @@ const styles = StyleSheet.create({
   businessSub: {
     fontSize: 8,
     color: '#475569',
-    marginTop: 2
+    marginTop: 3,
+    lineHeight: 1.3
   },
   docTitle: {
-    fontSize: 14,
+    fontSize: 12,
     fontWeight: 'bold',
     color: '#b45309',
     textTransform: 'uppercase',
@@ -267,13 +276,14 @@ export default function PendingPaymentsDocument({
         {/* Header */}
         <View style={styles.header}>
           <View style={styles.headerRow}>
-            <View>
+            <View style={styles.businessLeft}>
               <Text style={styles.businessName}>{businessName}</Text>
               <Text style={styles.businessSub}>
-                {businessAddress} | Ph: {businessPhone} | Email: {businessEmail}
+                {businessAddress}
+                {businessPhone ? `\nPh: ${businessPhone}` : ''}{businessEmail ? ` | Email: ${businessEmail}` : ''}
               </Text>
             </View>
-            <View>
+            <View style={styles.headerRight}>
               <Text style={styles.docTitle}>Pending Payments Sheet</Text>
               <Text style={styles.docMeta}>Print Date: {nowStr}</Text>
             </View>

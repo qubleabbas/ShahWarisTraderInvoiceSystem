@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
-import { Package, Plus, Search, Edit2, Trash2, AlertTriangle, Eye, History, ArrowDownRight, Building, Scale } from 'lucide-react';
+import { Package, Plus, Search, Edit2, Trash2, AlertTriangle, Eye, History, ArrowDownRight, Building, Scale, FolderTree } from 'lucide-react';
 import { db, Product, Category, Company, Unit, InvoiceItem, Invoice, Customer, recordTombstone, subscribeDataChanged } from '@/lib/db';
 import { useToast } from '@/components/ToastProvider';
 import SearchableCompanySelect from '@/components/SearchableCompanySelect';
@@ -11,9 +11,9 @@ function ProductsContent() {
   const { showToast } = useToast();
   const searchParams = useSearchParams();
   const tabParam = searchParams.get('tab');
-  const initialTab = tabParam === 'units' ? 'units' : tabParam === 'companies' ? 'companies' : 'products';
+  const initialTab = tabParam === 'categories' ? 'categories' : tabParam === 'units' ? 'units' : tabParam === 'companies' ? 'companies' : 'products';
 
-  const [activeTab, setActiveTab] = useState<'products' | 'companies' | 'units'>(initialTab);
+  const [activeTab, setActiveTab] = useState<'products' | 'categories' | 'companies' | 'units'>(initialTab);
   const [products, setProducts] = useState<Product[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [companies, setCompanies] = useState<Company[]>([]);
@@ -56,6 +56,11 @@ function ProductsContent() {
     stock_quantity: 0,
     min_stock_warning: 10
   });
+
+  // Category Modal State
+  const [isCategoryModalOpen, setIsCategoryModalOpen] = useState(false);
+  const [editingCategory, setEditingCategory] = useState<Category | null>(null);
+  const [categoryNameInput, setCategoryNameInput] = useState('');
 
   // Company Modal State
   const [isCompanyModalOpen, setIsCompanyModalOpen] = useState(false);
@@ -215,6 +220,67 @@ function ProductsContent() {
     }
   }
 
+  // Category Handlers
+  function handleOpenCategoryModal(category?: Category) {
+    if (category) {
+      setEditingCategory(category);
+      setCategoryNameInput(category.name);
+    } else {
+      setEditingCategory(null);
+      setCategoryNameInput('');
+    }
+    setIsCategoryModalOpen(true);
+  }
+
+  async function handleSaveCategory(e: React.FormEvent) {
+    e.preventDefault();
+    const trimmed = categoryNameInput.trim();
+    if (!trimmed) return;
+
+    try {
+      const allCats = await db.categories.toArray();
+      const isDuplicate = allCats.some(
+        (c) => c.name.trim().toLowerCase() === trimmed.toLowerCase() && c.id !== editingCategory?.id
+      );
+
+      if (isDuplicate) {
+        showToast(`Category "${trimmed}" already exists.`, 'error');
+        return;
+      }
+
+      if (editingCategory?.id) {
+        await db.categories.update(editingCategory.id, { name: trimmed });
+        showToast(`Category "${trimmed}" updated successfully!`, 'success');
+      } else {
+        await db.categories.add({ name: trimmed });
+        showToast(`Category "${trimmed}" added successfully!`, 'success');
+      }
+
+      setIsCategoryModalOpen(false);
+      setCategoryNameInput('');
+      loadData();
+    } catch (err) {
+      console.error(err);
+      showToast('Failed to save category.', 'error');
+    }
+  }
+
+  async function handleDeleteCategory(id: number) {
+    const cat = categories.find((c) => c.id === id);
+    const prodCount = products.filter((p) => p.category_id === id).length;
+    if (prodCount > 0) {
+      showToast(`Cannot delete "${cat?.name}" because it contains ${prodCount} active product(s).`, 'error');
+      return;
+    }
+
+    if (confirm(`Are you sure you want to delete category "${cat?.name}"?`)) {
+      await db.categories.delete(id);
+      await recordTombstone('categories', id);
+      showToast(`Category "${cat?.name || ''}" deleted successfully!`, 'success');
+      loadData();
+    }
+  }
+
   // Packaging Unit Handlers
   function handleOpenUnitModal(unit?: Unit) {
     if (unit) {
@@ -277,8 +343,8 @@ function ProductsContent() {
   }
 
   // Calculate live weighted average purchase price for restock mode
-  const currentOldStock = formData.stock_quantity;
-  const currentOldPrice = formData.purchase_price;
+  const currentOldStock = Math.max(0, formData.stock_quantity);
+  const currentOldPrice = Math.max(0, formData.purchase_price);
   const addedQty = Math.max(0, restockQty);
   const newBatchPrice = Math.max(0, restockPrice);
   const totalCombinedStock = currentOldStock + addedQty;
@@ -374,6 +440,10 @@ function ProductsContent() {
     return matchesSearch && matchesCategory && matchesCompany;
   });
 
+  const filteredCategories = categories.filter((c) =>
+    c.name.toLowerCase().includes(search.toLowerCase())
+  );
+
   const filteredCompanies = companies.filter(c =>
     c.name.toLowerCase().includes(search.toLowerCase())
   );
@@ -418,6 +488,8 @@ function ProductsContent() {
           <p className="text-sm text-slate-400 mt-1">
             {activeTab === 'products'
               ? 'Manage Product Catalog, Stock Inventory & Purchase Prices'
+              : activeTab === 'categories'
+              ? 'Manage Product Categories & Classification'
               : activeTab === 'companies'
               ? 'Manage Companies & Brand Manufacturers'
               : 'Manage Packaging & Measurement Units'}
@@ -432,6 +504,14 @@ function ProductsContent() {
           >
             <Plus size={18} />
             <span>Add New Product</span>
+          </button>
+        ) : activeTab === 'categories' ? (
+          <button
+            onClick={() => handleOpenCategoryModal()}
+            className="flex items-center space-x-2 bg-emerald-600 hover:bg-emerald-500 text-white font-medium px-4 py-2.5 rounded-xl shadow-md transition"
+          >
+            <Plus size={18} />
+            <span>Add New Category</span>
           </button>
         ) : activeTab === 'companies' ? (
           <button
@@ -468,6 +548,22 @@ function ProductsContent() {
         >
           <Package size={16} />
           <span>Products ({products.length})</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => {
+            setActiveTab('categories');
+            setSearch('');
+          }}
+          className={`flex items-center space-x-2 px-4 py-2 rounded-lg text-xs font-bold transition ${
+            activeTab === 'categories'
+              ? 'bg-emerald-600 text-white shadow-md'
+              : 'text-slate-400 hover:text-white'
+          }`}
+        >
+          <FolderTree size={16} />
+          <span>Categories ({categories.length})</span>
         </button>
 
         <button
@@ -552,7 +648,13 @@ function ProductsContent() {
           <Search className="absolute left-3.5 top-3 text-slate-400" size={18} />
           <input
             type="text"
-            placeholder={activeTab === 'companies' ? "Search company name..." : "Search unit name..."}
+            placeholder={
+              activeTab === 'categories'
+                ? "Search category name..."
+                : activeTab === 'companies'
+                ? "Search company name..."
+                : "Search unit name..."
+            }
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             className="w-full bg-slate-900 border border-slate-800 rounded-xl pl-10 pr-4 py-2.5 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500 transition"
@@ -599,7 +701,6 @@ function ProductsContent() {
                             )}
                           </div>
                           <h3 className="font-bold text-lg text-white">{prod.name}</h3>
-                          <p className="text-xs text-slate-400">Unit: {prod.unit}</p>
                         </div>
                         {isLowStock && (
                           <span className="flex items-center space-x-1 text-xs text-amber-400 bg-amber-400/10 px-2 py-1 rounded-md font-semibold">
@@ -626,11 +727,22 @@ function ProductsContent() {
                     </div>
 
                     <div className="pt-3 border-t border-slate-800 space-y-3">
-                      <div className="flex items-center justify-between text-xs">
-                        <span className="text-slate-400">Available Stock:</span>
-                        <span className={`font-bold ${isLowStock ? 'text-amber-400' : 'text-white'}`}>
-                          {prod.stock_quantity} {prod.unit}
-                        </span>
+                      <div className="grid grid-cols-2 gap-2 bg-slate-950/60 p-3 rounded-xl border border-slate-800/80">
+                        <div>
+                          <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 block">Available Stock</span>
+                          <span className={`inline-flex items-center gap-1.5 mt-1 px-2.5 py-1 rounded-lg text-xs font-extrabold ${
+                            isLowStock ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40' : 'bg-emerald-500/10 text-emerald-300 border border-emerald-500/30'
+                          }`}>
+                            <Package size={13} />
+                            <span>{prod.stock_quantity} in stock</span>
+                          </span>
+                        </div>
+                        <div className="text-right">
+                          <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 block">Packaging Unit</span>
+                          <span className="text-xs font-bold text-slate-200 block mt-1.5 truncate" title={prod.unit}>
+                            {prod.unit}
+                          </span>
+                        </div>
                       </div>
 
                       <div className="flex items-center gap-1.5">
@@ -676,7 +788,61 @@ function ProductsContent() {
         </>
       )}
 
-      {/* TAB 2: COMPANIES GRID */}
+      {/* TAB 2: CATEGORIES GRID */}
+      {activeTab === 'categories' && (
+        <>
+          {loading ? (
+            <div className="text-center py-12 text-slate-400">Loading categories...</div>
+          ) : filteredCategories.length === 0 ? (
+            <div className="bg-slate-900 rounded-2xl border border-slate-800 p-12 text-center text-slate-400">
+              No categories found.
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+              {filteredCategories.map((cat) => {
+                const prodCount = products.filter((p) => p.category_id === cat.id).length;
+
+                return (
+                  <div
+                    key={cat.id}
+                    className="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-card hover:border-slate-700 transition flex items-center justify-between"
+                  >
+                    <div className="space-y-1">
+                      <h3 className="font-bold text-lg text-white flex items-center space-x-2">
+                        <FolderTree size={18} className="text-emerald-400" />
+                        <span>{cat.name}</span>
+                      </h3>
+                      <div className="flex items-center space-x-1.5 text-xs text-emerald-400 font-medium">
+                        <Package size={14} />
+                        <span>{prodCount} active product{prodCount === 1 ? '' : 's'}</span>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center space-x-2">
+                      <button
+                        onClick={() => handleOpenCategoryModal(cat)}
+                        className="p-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-emerald-400 transition"
+                        title="Edit Category Name"
+                      >
+                        <Edit2 size={16} />
+                      </button>
+                      <button
+                        onClick={() => handleDeleteCategory(cat.id!)}
+                        className="p-2 rounded-lg bg-slate-800 hover:bg-rose-900/50 text-slate-400 hover:text-rose-400 transition"
+                        title="Delete Category"
+                      >
+                        <Trash2 size={16} />
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </>
+      )}
+
+      {/* TAB 3: COMPANIES GRID */}
       {activeTab === 'companies' && (
         <>
           {loading ? (
@@ -1024,6 +1190,50 @@ function ProductsContent() {
                   className="px-4 py-2 rounded-xl text-sm font-semibold bg-emerald-600 text-white hover:bg-emerald-500 shadow-md"
                 >
                   {modalMode === 'restock' ? 'Confirm Restock' : 'Save Product'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Add / Edit Category Modal */}
+      {isCategoryModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm">
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-md p-6 shadow-2xl space-y-4">
+            <h2 className="text-xl font-bold text-white flex items-center space-x-2">
+              <FolderTree size={20} className="text-emerald-400" />
+              <span>{editingCategory ? 'Edit Category' : 'Add New Category'}</span>
+            </h2>
+            <form onSubmit={handleSaveCategory} className="space-y-4">
+              <div>
+                <label className="block text-xs font-semibold uppercase text-slate-400 mb-1.5">
+                  Category Name <span className="text-rose-400">*</span>
+                </label>
+                <input
+                  type="text"
+                  required
+                  autoFocus
+                  placeholder="e.g. Sharbat, Majoon, Arq..."
+                  value={categoryNameInput}
+                  onChange={(e) => setCategoryNameInput(e.target.value)}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-white placeholder-slate-600 focus:outline-none focus:border-emerald-500"
+                />
+              </div>
+
+              <div className="flex justify-end space-x-3 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setIsCategoryModalOpen(false)}
+                  className="px-4 py-2 rounded-xl text-sm font-semibold bg-slate-800 text-slate-300 hover:bg-slate-700"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="px-4 py-2 rounded-xl text-sm font-semibold bg-emerald-600 text-white hover:bg-emerald-500 shadow-md"
+                >
+                  Save Category
                 </button>
               </div>
             </form>

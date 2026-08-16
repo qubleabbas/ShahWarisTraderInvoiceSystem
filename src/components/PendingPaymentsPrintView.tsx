@@ -283,16 +283,25 @@ export default function PendingPaymentsPrintView({
         <div className="p-6 overflow-y-auto bg-white text-slate-900 space-y-6 print:p-0 print:overflow-visible font-sans text-xs">
           
           {/* Printable Business Header */}
-          <div className="border-b-2 border-slate-900 pb-3 flex justify-between items-start">
-            <div>
-              <h1 className="text-xl font-extrabold text-slate-900 uppercase tracking-tight">{businessName}</h1>
-              <p className="text-[11px] text-slate-600 mt-0.5">
-                {businessAddress} | Ph: {businessPhone} | Email: {businessEmail}
+          <div className="border-b-2 border-slate-900 pb-3 flex justify-between items-start gap-4">
+            <div className="flex-1 min-w-0 pr-2">
+              <h1 className="text-xl font-extrabold text-slate-900 uppercase tracking-tight truncate">{businessName}</h1>
+              <p className="text-[11px] text-slate-600 mt-1 leading-normal break-words">
+                {businessAddress}
+                {(businessPhone || businessEmail) ? (
+                  <span className="block text-[11px] text-slate-500 mt-0.5">
+                    {businessPhone ? `Ph: ${businessPhone}` : ''}
+                    {businessPhone && businessEmail ? '  •  ' : ''}
+                    {businessEmail ? `Email: ${businessEmail}` : ''}
+                  </span>
+                ) : null}
               </p>
             </div>
-            <div className="text-right">
-              <h2 className="text-sm font-bold text-amber-700 uppercase tracking-wide">Pending Payments Sheet</h2>
-              <p className="text-[11px] text-slate-500 mt-0.5">Print Date: {nowStr}</p>
+            <div className="text-right shrink-0">
+              <h2 className="text-xs sm:text-sm font-bold text-amber-700 uppercase tracking-wide whitespace-nowrap">
+                Pending Payments Sheet
+              </h2>
+              <p className="text-[11px] font-medium text-slate-600 mt-1 whitespace-nowrap">Print Date: {nowStr}</p>
             </div>
           </div>
 

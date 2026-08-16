@@ -51,6 +51,7 @@ export interface Customer {
   address: string;
   city_id?: number;
   ntn_number?: string;
+  stn_number?: string;
   discount_percentage?: number;
   created_at: string;
   updated_at?: number;
@@ -111,6 +112,8 @@ export interface Invoice {
   tax_amount: number; // total of all tax lines
   taxes?: InvoiceTax[]; // multiple named tax lines (new); absent on older invoices
   total_amount: number;
+  previous_balance?: number; // Outstanding customer balance at time of invoice creation
+  include_previous_balance?: boolean; // Whether previous balance was added to grand total
   status: PaymentStatus;
   amount_paid?: number; // Derived cache: sum of all payment records for this invoice
   terms_conditions?: string;
@@ -295,6 +298,34 @@ export class QureshiDatabase extends Dexie {
         }
       }
     });
+
+    // v9 — Include customer previous pending balance in invoice
+    this.version(9).stores({
+      categories: '++id, &name',
+      units: '++id, &name',
+      cities: '++id, &name',
+      companies: '++id, &name',
+      products: '++id, name, category_id, company_id, stock_quantity',
+      customers: '++id, name, phone, city_id, created_at',
+      invoices: '++id, &invoice_number, customer_id, status, created_at',
+      invoice_items: '++id, invoice_id, product_id',
+      payments: '++id, invoice_id, customer_id, payment_date, method, created_at',
+      tax_rates: '++id, &label',
+      settings: '&key',
+      tombstones: '&[table+key], ts'
+    }).upgrade(async (tx) => {
+      const now = Date.now();
+      const names = ['categories', 'units', 'cities', 'companies', 'products', 'customers', 'invoices', 'invoice_items', 'payments', 'tax_rates', 'settings'];
+      for (const n of names) {
+        try {
+          await tx.table(n).toCollection().modify((r: any) => {
+            if (r.updated_at === undefined) r.updated_at = now;
+          });
+        } catch {
+          /* table may not exist in very old DBs — ignore */
+        }
+      }
+    });
   }
 }
 
@@ -426,7 +457,7 @@ async function doSeed() {
   // `count === 0` guards short-circuit — no duplicate inserts, no ConstraintError.
   await db.transaction(
     'rw',
-    [db.categories, db.units, db.cities, db.products, db.customers, db.invoices, db.invoice_items, db.settings],
+    [db.categories, db.units, db.cities, db.companies, db.products, db.customers, db.invoices, db.invoice_items, db.settings],
     async () => {
       const catCount = await db.categories.count();
       if (catCount > 0) return;
@@ -624,7 +655,7 @@ export async function exportDatabaseToJSON(): Promise<string> {
   const tombstones = await db.tombstones.toArray();
 
   const exportData = {
-    version: 7,
+    version: 9,
     exported_at: new Date().toISOString(),
     categories,
     units,
@@ -718,7 +749,7 @@ export async function mergeDatabaseFromJSON(jsonString: string): Promise<{ chang
   await withSyncSuspended(() =>
     db.transaction(
       'rw',
-      [db.categories, db.units, db.cities, db.products, db.customers, db.invoices, db.invoice_items, db.payments, db.tax_rates, db.settings, db.tombstones],
+      [db.categories, db.units, db.cities, db.companies, db.products, db.customers, db.invoices, db.invoice_items, db.payments, db.tax_rates, db.settings, db.tombstones],
       async () => {
         // Local tombstones -> map
         const localTombstones = await db.tombstones.toArray();
@@ -794,4 +825,82 @@ export async function mergeDatabaseFromJSON(jsonString: string): Promise<{ chang
     emitDataChanged();
   }
   return { changed };
+}
+
+/**
+ * Wipe all operational records (invoices, items, payments, products, customers, tombstones)
+ * so the system is completely fresh and clean for client delivery.
+ * Categories, units, cities, companies, and business settings are preserved.
+ */
+export async function clearAllOperationalData(): Promise<boolean> {
+  try {
+    await withSyncSuspended(() =>
+      db.transaction(
+        'rw',
+        [db.invoices, db.invoice_items, db.payments, db.products, db.customers, db.tombstones],
+        async () => {
+          await db.invoices.clear();
+          await db.invoice_items.clear();
+          await db.payments.clear();
+          await db.products.clear();
+          await db.customers.clear();
+          await db.tombstones.clear();
+        }
+      )
+    );
+    await persistToOPFS();
+    emitDataChanged();
+    return true;
+  } catch (err) {
+    console.error('Failed to clear operational data:', err);
+    return false;
+  }
+}
+
+/**
+ * Total reset — wipes ALL tables including settings, categories, products, customers, etc.
+ * Useful for complete fresh start before handing over to a new client.
+ */
+export async function clearEntireDatabase(): Promise<boolean> {
+  try {
+    await withSyncSuspended(() =>
+      db.transaction(
+        'rw',
+        [
+          db.categories,
+          db.units,
+          db.cities,
+          db.companies,
+          db.products,
+          db.customers,
+          db.invoices,
+          db.invoice_items,
+          db.payments,
+          db.tax_rates,
+          db.settings,
+          db.tombstones,
+        ],
+        async () => {
+          await db.categories.clear();
+          await db.units.clear();
+          await db.cities.clear();
+          await db.companies.clear();
+          await db.products.clear();
+          await db.customers.clear();
+          await db.invoices.clear();
+          await db.invoice_items.clear();
+          await db.payments.clear();
+          await db.tax_rates.clear();
+          await db.settings.clear();
+          await db.tombstones.clear();
+        }
+      )
+    );
+    await persistToOPFS();
+    emitDataChanged();
+    return true;
+  } catch (err) {
+    console.error('Failed to clear entire database:', err);
+    return false;
+  }
 }

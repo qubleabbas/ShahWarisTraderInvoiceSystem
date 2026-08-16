@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { Users, Plus, Search, Edit2, Trash2, Phone, MapPin, Eye, Wallet, Building2, Tag, Percent } from 'lucide-react';
 import { db, Customer, City, Invoice, recordTombstone, subscribeDataChanged } from '@/lib/db';
-import { statusBadgeClasses, displayStatus } from '@/lib/ledger';
+import { statusBadgeClasses, displayStatus, formatDateTime } from '@/lib/ledger';
 import { useToast } from '@/components/ToastProvider';
 import SearchableCitySelect from '@/components/SearchableCitySelect';
 
@@ -34,6 +34,7 @@ function CustomersContent() {
     address: string;
     city_id?: number;
     ntn_number: string;
+    stn_number: string;
     discount_percentage: string;
   }>({
     name: '',
@@ -41,6 +42,7 @@ function CustomersContent() {
     address: '',
     city_id: undefined,
     ntn_number: '',
+    stn_number: '',
     discount_percentage: ''
   });
 
@@ -108,6 +110,7 @@ function CustomersContent() {
         address: customer.address,
         city_id: customer.city_id,
         ntn_number: customer.ntn_number || '',
+        stn_number: customer.stn_number || '',
         discount_percentage: customer.discount_percentage !== undefined && customer.discount_percentage !== null ? String(customer.discount_percentage) : ''
       });
     } else {
@@ -118,6 +121,7 @@ function CustomersContent() {
         address: '',
         city_id: undefined,
         ntn_number: '',
+        stn_number: '',
         discount_percentage: ''
       });
     }
@@ -145,6 +149,7 @@ function CustomersContent() {
         address: formData.address.trim(),
         city_id: formData.city_id,
         ntn_number: formData.ntn_number.trim() || undefined,
+        stn_number: formData.stn_number.trim() || undefined,
         discount_percentage: parsedDiscount
       };
 
@@ -394,10 +399,15 @@ function CustomersContent() {
                           <MapPin size={14} className="text-emerald-400 flex-shrink-0" />
                           <span>{cust.address || 'No address provided'}</span>
                         </p>
-                        {cust.ntn_number && (
+                        {(cust.ntn_number || cust.stn_number) && (
                           <p className="flex items-center space-x-2 text-slate-300">
                             <Tag size={14} className="text-emerald-400 flex-shrink-0" />
-                            <span>NTN: {cust.ntn_number}</span>
+                            <span>
+                              {[
+                                cust.ntn_number ? `NTN: ${cust.ntn_number}` : '',
+                                cust.stn_number ? `STN: ${cust.stn_number}` : ''
+                              ].filter(Boolean).join(' | ')}
+                            </span>
                           </p>
                         )}
                         {cust.discount_percentage !== undefined && cust.discount_percentage !== null && (
@@ -578,7 +588,7 @@ function CustomersContent() {
                 />
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                 <div>
                   <label className="block text-xs font-semibold uppercase text-slate-400 mb-1.5">
                     NTN Number <span className="text-[10px] lowercase text-slate-500 font-normal ml-1 border border-slate-800 px-1.5 py-0.5 rounded">(Optional)</span>
@@ -588,7 +598,20 @@ function CustomersContent() {
                     placeholder="e.g. 1234567-8"
                     value={formData.ntn_number}
                     onChange={(e) => setFormData({ ...formData, ntn_number: e.target.value })}
-                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-white placeholder-slate-600 focus:outline-none focus:border-emerald-500"
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-white placeholder-slate-600 focus:outline-none focus:border-emerald-500 text-sm"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold uppercase text-slate-400 mb-1.5">
+                    STN Number <span className="text-[10px] lowercase text-slate-500 font-normal ml-1 border border-slate-800 px-1.5 py-0.5 rounded">(Optional)</span>
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="e.g. 9876543-2"
+                    value={formData.stn_number}
+                    onChange={(e) => setFormData({ ...formData, stn_number: e.target.value })}
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-white placeholder-slate-600 focus:outline-none focus:border-emerald-500 text-sm"
                   />
                 </div>
 
@@ -604,7 +627,7 @@ function CustomersContent() {
                     placeholder="e.g. 5"
                     value={formData.discount_percentage}
                     onChange={(e) => setFormData({ ...formData, discount_percentage: e.target.value })}
-                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-white placeholder-slate-600 focus:outline-none focus:border-emerald-500"
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-white placeholder-slate-600 focus:outline-none focus:border-emerald-500 text-sm"
                   />
                 </div>
               </div>
@@ -683,9 +706,16 @@ function CustomersContent() {
                   {viewingCustomer.phone} | {viewingCustomer.address}
                   {viewingCustomer.city_id && cityMap.get(viewingCustomer.city_id) ? ` (${cityMap.get(viewingCustomer.city_id)})` : ''}
                 </p>
-                {(viewingCustomer.ntn_number || (viewingCustomer.discount_percentage !== undefined && viewingCustomer.discount_percentage !== null)) && (
+                {(viewingCustomer.ntn_number || viewingCustomer.stn_number || (viewingCustomer.discount_percentage !== undefined && viewingCustomer.discount_percentage !== null)) && (
                   <p className="text-xs text-emerald-400 font-medium mt-1 space-x-3">
-                    {viewingCustomer.ntn_number && <span>NTN: {viewingCustomer.ntn_number}</span>}
+                    {(viewingCustomer.ntn_number || viewingCustomer.stn_number) && (
+                      <span>
+                        {[
+                          viewingCustomer.ntn_number ? `NTN: ${viewingCustomer.ntn_number}` : '',
+                          viewingCustomer.stn_number ? `STN: ${viewingCustomer.stn_number}` : ''
+                        ].filter(Boolean).join(' | ')}
+                      </span>
+                    )}
                     {viewingCustomer.discount_percentage !== undefined && viewingCustomer.discount_percentage !== null && <span>Default Discount: {viewingCustomer.discount_percentage}%</span>}
                   </p>
                 )}
@@ -723,7 +753,7 @@ function CustomersContent() {
                     <div key={inv.id} className="bg-slate-950/80 p-3.5 rounded-xl border border-slate-800 flex items-center justify-between">
                       <div>
                         <p className="font-bold text-sm text-white">{inv.invoice_number}</p>
-                        <p className="text-xs text-slate-400">{new Date(inv.created_at).toLocaleDateString()}</p>
+                        <p className="text-xs text-slate-400">{formatDateTime(inv.created_at).date} · {formatDateTime(inv.created_at).time}</p>
                       </div>
                       <div className="flex items-center space-x-4">
                         <span className={`px-2.5 py-0.5 rounded-full text-xs font-semibold ${statusBadgeClasses(inv.status)}`}>

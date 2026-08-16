@@ -18,7 +18,7 @@ import {
   Stamp,
   Trash2
 } from 'lucide-react';
-import { db, exportDatabaseToJSON, importDatabaseFromJSON } from '@/lib/db';
+import { db, exportDatabaseToJSON, importDatabaseFromJSON, clearAllOperationalData, clearEntireDatabase } from '@/lib/db';
 import { useToast } from '@/components/ToastProvider';
 import {
   getStoredAccessToken,
@@ -329,6 +329,38 @@ export default function SettingsPage() {
       }
     };
     reader.readAsText(file);
+  }
+
+  async function handleClearOperationalData() {
+    if (
+      confirm(
+        "⚠️ FRESH CLIENT HANDOVER RESET\n\nThis action will clear all sample Invoices, Invoice Items, Payments, Products, and Customers.\n\nYour categories, packaging units, cities, companies, and business settings will be kept.\n\nAre you sure you want to clean all operational data for client delivery?"
+      )
+    ) {
+      const ok = await clearAllOperationalData();
+      if (ok) {
+        showToast('All operational data cleared! Database is fresh for client handover.', 'success');
+        window.location.reload();
+      } else {
+        showToast('Failed to clear operational data.', 'error');
+      }
+    }
+  }
+
+  async function handleClearEntireDatabase() {
+    if (
+      confirm(
+        "🚨 TOTAL DATABASE WIPE\n\nThis action will PERMANENTLY ERASE ALL DATA (Invoices, Customers, Products, Settings, Categories, Units, Cities, Companies).\n\nAre you sure you want to completely wipe the database?"
+      )
+    ) {
+      const ok = await clearEntireDatabase();
+      if (ok) {
+        showToast('Database wiped clean.', 'success');
+        window.location.reload();
+      } else {
+        showToast('Failed to wipe database.', 'error');
+      }
+    }
   }
 
   if (loading) {
@@ -747,6 +779,37 @@ export default function SettingsPage() {
               className="hidden"
             />
           </label>
+        </div>
+      </div>
+
+      {/* Client Handover & Data Reset Zone */}
+      <div className="bg-slate-900 border border-rose-500/30 rounded-2xl p-6 shadow-card space-y-4">
+        <h2 className="text-lg font-bold text-rose-400 border-b border-slate-800 pb-3 flex items-center space-x-2">
+          <Trash2 size={20} />
+          <span>Client Delivery & Data Handover Reset</span>
+        </h2>
+        <p className="text-xs text-slate-400">
+          Use these options to wipe test/sample data before handing the clean application over to your client.
+        </p>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <button
+            type="button"
+            onClick={handleClearOperationalData}
+            className="py-3 bg-amber-600/20 hover:bg-amber-600 border border-amber-500/40 text-amber-300 hover:text-white font-bold rounded-xl text-xs flex items-center justify-center space-x-2 transition"
+          >
+            <RefreshCw size={16} />
+            <span>Clear Invoices, Products & Customers (Fresh Start)</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={handleClearEntireDatabase}
+            className="py-3 bg-rose-600/20 hover:bg-rose-600 border border-rose-500/40 text-rose-300 hover:text-white font-bold rounded-xl text-xs flex items-center justify-center space-x-2 transition"
+          >
+            <Trash2 size={16} />
+            <span>Wipe Entire Database (Total Reset)</span>
+          </button>
         </div>
       </div>
     </div>

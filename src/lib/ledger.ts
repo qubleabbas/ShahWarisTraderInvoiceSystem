@@ -49,6 +49,7 @@ export function derivePaymentStatus(
   if (paid > EPS) return 'Partially Paid';
   if (dueDate) {
     const due = new Date(dueDate);
+    due.setHours(23, 59, 59, 999);
     if (!isNaN(due.getTime()) && now.getTime() > due.getTime()) return 'Overdue';
   }
   return 'Unpaid';
@@ -265,6 +266,40 @@ export interface CustomerLedger {
   };
 }
 
+/**
+ * Calculate total outstanding pending balance for a customer across all prior invoices.
+ * Optionally exclude a specific invoice ID (useful when editing an invoice).
+ */
+export async function getCustomerPendingBalance(customerId: number, excludeInvoiceId?: number): Promise<number> {
+  const invoices = await db.invoices.where('customer_id').equals(customerId).toArray();
+  const payments = await db.payments.where('customer_id').equals(customerId).toArray();
+
+  const paymentsByInvoice = new Map<number, Payment[]>();
+  for (const p of payments) {
+    const list = paymentsByInvoice.get(p.invoice_id) || [];
+    list.push(p);
+    paymentsByInvoice.set(p.invoice_id, list);
+  }
+
+  let totalOutstanding = 0;
+  for (const inv of invoices) {
+    if (excludeInvoiceId && inv.id === excludeInvoiceId) continue;
+    const invPayments = paymentsByInvoice.get(inv.id!) || [];
+    const baseTotal = (inv.include_previous_balance && inv.previous_balance)
+      ? Math.max(0, inv.total_amount - inv.previous_balance)
+      : inv.total_amount;
+    const invForInfo = (inv.include_previous_balance && inv.previous_balance)
+      ? { ...inv, total_amount: baseTotal }
+      : inv;
+    const info = computeInvoiceInfo(invForInfo, invPayments);
+    if (info.remaining > 0) {
+      totalOutstanding += info.remaining;
+    }
+  }
+
+  return round2(totalOutstanding);
+}
+
 /** Build the complete ledger for a single customer. */
 export async function getCustomerLedger(customerId: number): Promise<CustomerLedger> {
   const invoices = await db.invoices.where('customer_id').equals(customerId).toArray();
@@ -427,7 +462,7 @@ export function formatDateTime(iso: string): { date: string; time: string } {
   const d = new Date(iso);
   if (isNaN(d.getTime())) return { date: '—', time: '' };
   return {
-    date: d.toLocaleDateString(undefined, { day: '2-digit', month: 'short', year: 'numeric' }),
-    time: d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' }),
+    date: d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }),
+    time: d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true }),
   };
 }

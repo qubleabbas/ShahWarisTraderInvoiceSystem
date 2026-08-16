@@ -128,7 +128,7 @@ export default function SalesPage() {
     if (item.purchase_price !== undefined && item.purchase_price > 0) return item.purchase_price;
     if (p?.purchase_price !== undefined && p.purchase_price > 0) return p.purchase_price;
     if (p?.cost_price !== undefined && p.cost_price > 0) return p.cost_price;
-    return item.unit_price * 0.6;
+    return 0;
   }
 
   // Filter invoices by selected date range
@@ -194,7 +194,10 @@ export default function SalesPage() {
   const prevItems = invoiceItems.filter(it => it.invoice_id && prevIds.has(it.invoice_id));
 
   // --- Overall Financial Summary Metrics ---
-  const totalRevenue = filteredInvoices.reduce((sum, i) => sum + i.total_amount, 0);
+  const getInvoiceNetTotal = (i: Invoice) =>
+    i.include_previous_balance && i.previous_balance ? Math.max(0, i.total_amount - i.previous_balance) : i.total_amount;
+
+  const totalRevenue = filteredInvoices.reduce((sum, i) => sum + getInvoiceNetTotal(i), 0);
   // Ledger-accurate: paid = money actually received (includes partial payments);
   // pending = outstanding balance across every not-fully-paid invoice.
   const paidSales = filteredInvoices.reduce((sum, i) => sum + (i.amount_paid || 0), 0);
@@ -217,7 +220,7 @@ export default function SalesPage() {
   const profitMarginPct = totalRevenue > 0 ? (grossProfit / totalRevenue) * 100 : 0;
 
   // Previous period aggregates
-  const prevRevenue = prevInvoices.reduce((s, i) => s + i.total_amount, 0);
+  const prevRevenue = prevInvoices.reduce((s, i) => s + getInvoiceNetTotal(i), 0);
   let prevCost = 0;
   prevItems.forEach(it => { prevCost += it.quantity * getItemUnitCost(it, productMap.get(it.product_id)); });
   const prevProfit = Math.max(0, prevRevenue - prevCost);

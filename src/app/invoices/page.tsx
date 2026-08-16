@@ -27,7 +27,7 @@ import { db, Invoice, Customer, City, InvoiceItem, recordTombstone, subscribeDat
 import { useToast } from '@/components/ToastProvider';
 import { printVectorPdf, PrintFormat } from '@/lib/pdfPrint';
 import PrintFormatMenu from '@/components/PrintFormatMenu';
-import { addPayment, statusBadgeClasses, displayStatus, round2 } from '@/lib/ledger';
+import { addPayment, statusBadgeClasses, displayStatus, round2, formatDateTime } from '@/lib/ledger';
 import DeliverySheetPrintView from '@/components/DeliverySheetPrintView';
 import PendingPaymentsPrintView from '@/components/PendingPaymentsPrintView';
 import { DeliverySheetItem } from '@/components/pdf/DeliveryCollectionDocument';
@@ -392,7 +392,14 @@ function InvoicesContent() {
     if (confirm("Are you sure you want to delete this invoice?")) {
       const itemKeys = await db.invoice_items.where('invoice_id').equals(id).primaryKeys();
       const paymentKeys = await db.payments.where('invoice_id').equals(id).primaryKeys();
-      await db.transaction('rw', [db.invoices, db.invoice_items, db.payments], async () => {
+      await db.transaction('rw', [db.invoices, db.invoice_items, db.payments, db.products], async () => {
+        const items = await db.invoice_items.where('invoice_id').equals(id).toArray();
+        for (const item of items) {
+          const p = await db.products.get(item.product_id);
+          if (p) {
+            await db.products.update(p.id!, { stock_quantity: p.stock_quantity + item.quantity });
+          }
+        }
         await db.invoices.delete(id);
         await db.invoice_items.where('invoice_id').equals(id).delete();
         await db.payments.where('invoice_id').equals(id).delete();
@@ -1260,7 +1267,7 @@ function InvoicesContent() {
                   <tbody className="divide-y divide-slate-800/60">
                     {filteredInvoices.map((inv) => {
                       const isSelected = selectedIds.includes(inv.id!);
-                      const invDate = new Date(inv.created_at).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+                      const dt = formatDateTime(inv.created_at);
 
                       return (
                         <tr key={inv.id} className={`hover:bg-slate-800/40 transition ${isSelected ? 'bg-slate-800/60' : ''}`}>
@@ -1271,7 +1278,10 @@ function InvoicesContent() {
                           </td>
                           <td className="py-3 px-4 font-bold text-white">{inv.invoice_number}</td>
                           <td className="py-3 px-4 font-medium text-slate-200">{inv.customer_name}</td>
-                          <td className="py-3 px-4 text-slate-400 text-xs">{invDate}</td>
+                          <td className="py-3 px-4 text-slate-400 text-xs font-medium">
+                            <div className="text-slate-200">{dt.date}</div>
+                            <div className="text-[11px] text-slate-400 font-normal">{dt.time}</div>
+                          </td>
                           <td className="py-3 px-4 text-right font-extrabold text-emerald-400">
                             {currency} {inv.total_amount.toLocaleString()}
                           </td>
@@ -1552,7 +1562,7 @@ function InvoicesContent() {
                   <tbody className="divide-y divide-slate-800/60">
                     {filteredDeliveryItems.map((item) => {
                       const isSelected = deliverySelectedIds.includes(item.invoice.id!);
-                      const invDate = new Date(item.invoice.created_at).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+                      const dt = formatDateTime(item.invoice.created_at);
 
                       return (
                         <tr
@@ -1570,7 +1580,10 @@ function InvoicesContent() {
                           <td className="py-3 px-4 font-bold text-white">{item.invoice.invoice_number}</td>
                           <td className="py-3 px-4 font-medium text-slate-200">{item.customerName}</td>
                           <td className="py-3 px-4 text-xs font-semibold text-emerald-400">{item.cityName || 'N/A'}</td>
-                          <td className="py-3 px-4 text-slate-400 text-xs">{invDate}</td>
+                          <td className="py-3 px-4 text-slate-400 text-xs">
+                            <div className="text-slate-200">{dt.date}</div>
+                            <div className="text-[11px] text-slate-400 font-normal">{dt.time}</div>
+                          </td>
                           <td className="py-3 px-4 text-right font-extrabold text-emerald-400">
                             {currency} {item.invoice.total_amount.toLocaleString()}
                           </td>
@@ -1796,7 +1809,7 @@ function InvoicesContent() {
                   <tbody className="divide-y divide-slate-800/60">
                     {filteredPendingItems.map((item) => {
                       const isSelected = pendingSelectedIds.includes(item.invoice.id!);
-                      const invDate = new Date(item.invoice.created_at).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+                      const dt = formatDateTime(item.invoice.created_at);
 
                       return (
                         <tr
@@ -1814,7 +1827,10 @@ function InvoicesContent() {
                           <td className="py-3 px-4 font-bold text-white">{item.invoice.invoice_number}</td>
                           <td className="py-3 px-4 font-medium text-slate-200">{item.customerName}</td>
                           <td className="py-3 px-4 text-xs font-semibold text-amber-400">{item.cityName || 'N/A'}</td>
-                          <td className="py-3 px-4 text-slate-400 text-xs">{invDate}</td>
+                          <td className="py-3 px-4 text-slate-400 text-xs">
+                            <div className="text-slate-200">{dt.date}</div>
+                            <div className="text-[11px] text-slate-400 font-normal">{dt.time}</div>
+                          </td>
                           <td className="py-3 px-4 text-right font-medium text-slate-300">
                             {currency} {item.invoice.total_amount.toLocaleString()}
                           </td>

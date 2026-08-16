@@ -129,9 +129,13 @@ export default function InvoiceDocument({ invoices }: InvoiceDocumentProps) {
               <Text style={styles.customerName}>{customer?.name || invoice.customer_name || 'Walk-in Customer'}</Text>
               <Text style={styles.customerText}>{customer?.address || invoice.customer_address || 'No address specified'}</Text>
               <Text style={styles.customerText}>Phone: {customer?.phone || invoice.customer_phone || 'N/A'}</Text>
-              {customer?.ntn_number && customer.ntn_number.trim() !== '' ? (
-                <Text style={styles.customerText}>NTN: {customer.ntn_number.trim()}</Text>
-              ) : null}
+              {(() => {
+                const ntn = customer?.ntn_number?.trim();
+                const stn = customer?.stn_number?.trim();
+                if (!ntn && !stn) return null;
+                const taxText = [ntn ? `NTN: ${ntn}` : '', stn ? `STN: ${stn}` : ''].filter(Boolean).join(' | ');
+                return <Text style={styles.customerText}>{taxText}</Text>;
+              })()}
             </View>
 
             {/* Itemized Table */}
@@ -230,6 +234,15 @@ export default function InvoiceDocument({ invoices }: InvoiceDocumentProps) {
                     <Text style={styles.totalLabel}>Tax ({invoice.tax_percent}%):</Text>
                     <Text style={styles.totalValue}>
                       +{businessInfo.currency} {invoice.tax_amount.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })}
+                    </Text>
+                  </View>
+                ) : null}
+
+                {invoice.include_previous_balance && (invoice.previous_balance || 0) > 0 ? (
+                  <View style={styles.totalRow}>
+                    <Text style={styles.totalLabel}>Pending Amount:</Text>
+                    <Text style={styles.totalValue}>
+                      +{businessInfo.currency} {(invoice.previous_balance || 0).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })}
                     </Text>
                   </View>
                 ) : null}

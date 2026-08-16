@@ -318,7 +318,8 @@ export default function CustomerLedgerPage() {
                             </Link>
                           </td>
                           <td className="px-4 py-3.5 text-xs text-slate-400">
-                            {formatDateTime(inv.created_at).date}
+                            <div className="font-medium text-slate-200">{formatDateTime(inv.created_at).date}</div>
+                            <div className="text-[11px] text-slate-400 font-normal">{formatDateTime(inv.created_at).time}</div>
                           </td>
                           <td className="px-4 py-3.5 text-right font-semibold text-white">
                             {money(inv.total)}
@@ -379,7 +380,7 @@ export default function CustomerLedgerPage() {
                         <Link href={`/invoices/${inv.id}`} className="font-bold text-white hover:text-emerald-400">
                           {inv.invoice_number}
                         </Link>
-                        <p className="text-[11px] text-slate-500">{formatDateTime(inv.created_at).date}</p>
+                        <p className="text-[11px] text-slate-400">{formatDateTime(inv.created_at).date} · {formatDateTime(inv.created_at).time}</p>
                       </div>
                       <span
                         className={`inline-flex rounded-full px-2 py-0.5 text-[11px] font-bold ${statusBadgeClasses(

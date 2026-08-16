@@ -18,6 +18,7 @@ import SearchableProductSelect from '@/components/SearchableProductSelect';
 import SearchableCustomerSelect from '@/components/SearchableCustomerSelect';
 import SearchableCitySelect from '@/components/SearchableCitySelect';
 import TaxManager, { TaxLine } from '@/components/TaxManager';
+import { getCustomerPendingBalance } from '@/lib/ledger';
 
 interface LineItemInput {
   product_id: number;
@@ -47,6 +48,26 @@ export default function NewInvoicePage() {
   const [overallDiscountType, setOverallDiscountType] = useState<'percent' | 'fixed'>('percent');
   const [taxes, setTaxes] = useState<TaxLine[]>([]);
 
+  // Customer Pending Balance State
+  const [customerPendingBalance, setCustomerPendingBalance] = useState<number>(0);
+  const [includePendingBalance, setIncludePendingBalance] = useState<boolean>(false);
+
+  useEffect(() => {
+    async function loadPendingBalance() {
+      if (!customerId) {
+        setCustomerPendingBalance(0);
+        setIncludePendingBalance(false);
+        return;
+      }
+      const balance = await getCustomerPendingBalance(customerId);
+      setCustomerPendingBalance(balance);
+      if (balance <= 0) {
+        setIncludePendingBalance(false);
+      }
+    }
+    loadPendingBalance();
+  }, [customerId]);
+
   // Signature & Stamp Toggles and URLs
   const [includeSignature, setIncludeSignature] = useState<boolean>(true);
   const [includeStamp, setIncludeStamp] = useState<boolean>(true);
@@ -63,6 +84,7 @@ export default function NewInvoicePage() {
   const [newCustAddress, setNewCustAddress] = useState('');
   const [newCustCityId, setNewCustCityId] = useState<number | undefined>(undefined);
   const [newCustNtn, setNewCustNtn] = useState('');
+  const [newCustStn, setNewCustStn] = useState('');
   const [newCustDiscount, setNewCustDiscount] = useState('');
 
   const [loading, setLoading] = useState(true);
@@ -257,7 +279,9 @@ export default function NewInvoicePage() {
     0
   );
   const combinedTaxRate = taxes.reduce((sum, t) => sum + (parseFloat(t.rate) || 0), 0);
-  const grandTotal = Math.max(0, subtotalAfterDiscount + taxAmount);
+  const baseGrandTotal = Math.max(0, subtotalAfterDiscount + taxAmount);
+  const pendingAmountToAdd = (includePendingBalance && customerPendingBalance > 0) ? customerPendingBalance : 0;
+  const grandTotal = Math.max(0, baseGrandTotal + pendingAmountToAdd);
 
   // Handle Quick Add Customer
   async function handleCreateQuickCustomer(e: React.FormEvent) {
@@ -280,6 +304,7 @@ export default function NewInvoicePage() {
       address: newCustAddress.trim(),
       city_id: newCustCityId,
       ntn_number: newCustNtn.trim() || undefined,
+      stn_number: newCustStn.trim() || undefined,
       discount_percentage: parsedDisc,
       created_at: new Date().toISOString()
     });
@@ -306,6 +331,7 @@ export default function NewInvoicePage() {
     setNewCustAddress('');
     setNewCustCityId(undefined);
     setNewCustNtn('');
+    setNewCustStn('');
     setNewCustDiscount('');
   }
 
@@ -339,10 +365,25 @@ export default function NewInvoicePage() {
 
     setIsSubmitting(true);
     try {
-      // Generate Professional Invoice Number SWT-YEAR-COUNT
-      const invCount = (await db.invoices.count()) + 1;
+      // Generate Professional Invoice Number SWT-YEAR-COUNT safely without collisions
       const year = new Date().getFullYear();
-      const invoiceNumber = `SWT-${year}-${String(invCount).padStart(3, '0')}`;
+      const prefix = `SWT-${year}-`;
+      const allInvoices = await db.invoices.toArray();
+      let maxNum = 0;
+      for (const inv of allInvoices) {
+        if (inv.invoice_number && inv.invoice_number.startsWith(prefix)) {
+          const num = parseInt(inv.invoice_number.replace(prefix, ''), 10);
+          if (!isNaN(num) && num > maxNum) {
+            maxNum = num;
+          }
+        }
+      }
+      let nextNum = maxNum + 1;
+      let invoiceNumber = `${prefix}${String(nextNum).padStart(3, '0')}`;
+      while (await db.invoices.get({ invoice_number: invoiceNumber })) {
+        nextNum++;
+        invoiceNumber = `${prefix}${String(nextNum).padStart(3, '0')}`;
+      }
 
       const createdAt = new Date().toISOString();
       const dueDate = new Date(Date.now() + dueDateDays * 24 * 60 * 60 * 1000).toISOString();
@@ -372,6 +413,8 @@ export default function NewInvoicePage() {
           tax_percent: combinedTaxRate,
           tax_amount: taxAmount,
           taxes: invoiceTaxes,
+          previous_balance: customerPendingBalance,
+          include_previous_balance: includePendingBalance && customerPendingBalance > 0,
           total_amount: grandTotal,
           status: isPaidNow ? 'Paid' : 'Unpaid',
           amount_paid: isPaidNow ? grandTotal : 0,
@@ -420,10 +463,11 @@ export default function NewInvoicePage() {
             line_total: lineTotal
           });
 
-          // Stock Deduction
-          if (p) {
-            const newStock = Math.max(0, p.stock_quantity - q);
-            await db.products.update(p.id!, { stock_quantity: newStock });
+          // Stock Deduction dynamically from database
+          const currentProduct = await db.products.get(item.product_id);
+          if (currentProduct) {
+            const newStock = Math.max(0, currentProduct.stock_quantity - q);
+            await db.products.update(currentProduct.id!, { stock_quantity: newStock });
           }
         }
 
@@ -913,6 +957,37 @@ export default function NewInvoicePage() {
                 currency={currency}
               />
 
+              {/* Include Customer Pending Amount Box */}
+              <div className="bg-slate-950/80 border border-slate-800 rounded-xl p-3.5 space-y-2 my-2">
+                <div className="flex items-center justify-between">
+                  <label htmlFor="includePendingBalanceCheckbox" className={`flex items-center space-x-2.5 ${customerPendingBalance > 0 ? 'cursor-pointer' : 'cursor-not-allowed opacity-60'}`}>
+                    <input
+                      type="checkbox"
+                      id="includePendingBalanceCheckbox"
+                      disabled={customerPendingBalance <= 0}
+                      checked={includePendingBalance && customerPendingBalance > 0}
+                      onChange={(e) => setIncludePendingBalance(e.target.checked)}
+                      className="w-4 h-4 rounded border-slate-700 bg-slate-900 text-emerald-500 focus:ring-emerald-500 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+                    />
+                    <span className={`text-xs font-bold uppercase tracking-wider ${customerPendingBalance > 0 ? 'text-slate-200' : 'text-slate-500'}`}>
+                      Include Pending Amount
+                    </span>
+                  </label>
+                  <span className={`text-xs font-extrabold ${customerPendingBalance > 0 ? 'text-amber-400' : 'text-slate-500'}`}>
+                    {currency} {customerPendingBalance.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })}
+                  </span>
+                </div>
+
+                {includePendingBalance && customerPendingBalance > 0 ? (
+                  <div className="flex justify-between text-xs text-amber-400 font-bold pt-1 border-t border-slate-800/60">
+                    <span>Pending Amount</span>
+                    <span>+{currency} {customerPendingBalance.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })}</span>
+                  </div>
+                ) : customerPendingBalance <= 0 ? (
+                  <p className="text-[11px] text-slate-500 italic">No previous pending balance for this customer.</p>
+                ) : null}
+              </div>
+
               <div className="pt-3 border-t border-slate-800 flex justify-between items-center text-lg font-black">
                 <span className="text-white">Final Grand Total:</span>
                 <span className="text-emerald-400">{currency} {grandTotal.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })}</span>
@@ -990,7 +1065,7 @@ export default function NewInvoicePage() {
                   className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-white"
                 />
               </div>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                 <div>
                   <label className="block text-xs font-semibold uppercase text-slate-400 mb-1">
                     NTN Number <span className="text-[10px] lowercase text-slate-500 font-normal ml-1 border border-slate-800 px-1.5 py-0.5 rounded">(Optional)</span>
@@ -1000,6 +1075,18 @@ export default function NewInvoicePage() {
                     placeholder="e.g. 1234567-8"
                     value={newCustNtn}
                     onChange={(e) => setNewCustNtn(e.target.value)}
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-white"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold uppercase text-slate-400 mb-1">
+                    STN Number <span className="text-[10px] lowercase text-slate-500 font-normal ml-1 border border-slate-800 px-1.5 py-0.5 rounded">(Optional)</span>
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="e.g. 9876543-2"
+                    value={newCustStn}
+                    onChange={(e) => setNewCustStn(e.target.value)}
                     className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-white"
                   />
                 </div>
