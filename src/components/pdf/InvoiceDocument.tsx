@@ -158,9 +158,10 @@ export default function InvoiceDocument({ invoices }: InvoiceDocumentProps) {
                 const displayLineTotal = item.line_total !== undefined ? item.line_total : Math.max(0, grossLine - lineDiscVal);
 
                 const itemDisplayName = item.product_name || 'Product';
+                const pIdPrefix = item.product_id ? `#${item.product_id} - ` : '';
                 const fullDescription = item.unit && item.unit.trim() !== ''
-                  ? `${itemDisplayName} (${item.unit})`
-                  : itemDisplayName;
+                  ? `${pIdPrefix}${itemDisplayName} (${item.unit})`
+                  : `${pIdPrefix}${itemDisplayName}`;
 
                 return (
                   <View key={idx} style={[styles.tableRow, idx % 2 === 1 ? styles.tableRowEven : {}]} wrap={false}>
@@ -283,7 +284,7 @@ export default function InvoiceDocument({ invoices }: InvoiceDocumentProps) {
             {/* Fixed Bottom Footer — Terms & Conditions + Page Number (Appears fixed at bottom on EVERY page) */}
             <View style={styles.footer} fixed>
               <View style={styles.termsContainer}>
-                <Text style={styles.termsTitle}>Terms & Conditions:</Text>
+                <Text style={styles.termsTitle}>WARRANTY FORM:</Text>
                 <Text style={styles.termsText}>
                   {invoice.terms_conditions || '1. Payment due within specified period.\n2. Goods once sold are non-refundable.'}
                 </Text>

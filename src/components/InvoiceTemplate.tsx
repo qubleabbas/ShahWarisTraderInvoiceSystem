@@ -165,7 +165,14 @@ export default function InvoiceTemplate({
               return (
                 <tr key={idx} className="border-b border-slate-200 hover:bg-slate-50/50" style={{ breakInside: 'avoid', pageBreakInside: 'avoid' }}>
                   <td className="py-2 px-2.5 font-medium text-slate-400">{idx + 1}</td>
-                  <td className="py-2 px-2.5 font-bold text-slate-900">{fullDescription}</td>
+                  <td className="py-2 px-2.5 font-bold text-slate-900">
+                    {item.product_id && (
+                      <span className="font-mono text-[10px] text-slate-500 font-bold mr-1.5 bg-slate-100 px-1.5 py-0.5 rounded border border-slate-200" style={{ WebkitPrintColorAdjust: 'exact', printColorAdjust: 'exact' }}>
+                        #{item.product_id}
+                      </span>
+                    )}
+                    {fullDescription}
+                  </td>
                   <td className="py-2 px-2.5 text-center font-bold">{item.quantity}</td>
                   <td className="py-2 px-2.5 text-right">{businessInfo.currency} {item.unit_price.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })}</td>
                   <td className="py-2 px-2.5 text-right text-rose-600">
@@ -245,7 +252,7 @@ export default function InvoiceTemplate({
         {/* Terms & Conditions */}
         <div className="space-y-1 w-full" style={{ breakInside: 'avoid', pageBreakInside: 'avoid' }}>
           <h4 className="text-[10px] font-extrabold uppercase tracking-wider text-slate-700">
-            Terms & Conditions:
+            WARRANTY FORM:
           </h4>
           <p
             className="text-[11px] text-slate-600 whitespace-pre-line leading-relaxed bg-slate-50 p-2.5 rounded-xl border border-slate-200"

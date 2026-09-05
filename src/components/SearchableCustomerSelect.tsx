@@ -3,6 +3,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Search, ChevronDown, Check, User, PlusCircle } from 'lucide-react';
 import { Customer } from '@/lib/db';
+import { fuzzyFilter } from '@/lib/fuzzySearch';
 
 interface SearchableCustomerSelectProps {
   customers: Customer[];
@@ -33,15 +34,12 @@ export default function SearchableCustomerSelect({
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  const filteredCustomers = customers.filter((c) => {
-    const q = search.toLowerCase().trim();
-    if (!q) return true;
-    return (
-      c.name.toLowerCase().includes(q) ||
-      (c.phone && c.phone.toLowerCase().includes(q)) ||
-      (c.address && c.address.toLowerCase().includes(q))
-    );
-  });
+  const filteredCustomers = fuzzyFilter(customers, search, (c) => [
+    c.id,
+    c.name,
+    c.phone,
+    c.address
+  ]);
 
   return (
     <div ref={wrapperRef} className="relative w-full">

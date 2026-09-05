@@ -28,10 +28,12 @@ import { useToast } from '@/components/ToastProvider';
 import { printVectorPdf, PrintFormat } from '@/lib/pdfPrint';
 import PrintFormatMenu from '@/components/PrintFormatMenu';
 import { addPayment, statusBadgeClasses, displayStatus, round2, formatDateTime } from '@/lib/ledger';
+import { fuzzyMatchMulti } from '@/lib/fuzzySearch';
 import DeliverySheetPrintView from '@/components/DeliverySheetPrintView';
 import PendingPaymentsPrintView from '@/components/PendingPaymentsPrintView';
 import { DeliverySheetItem } from '@/components/pdf/DeliveryCollectionDocument';
 import { CustomerPendingGroup, PendingPaymentItem } from '@/components/pdf/PendingPaymentsDocument';
+import Pagination from '@/components/Pagination';
 
 function InvoicesContent() {
   const { showToast } = useToast();
@@ -100,10 +102,11 @@ function InvoicesContent() {
   const hasMore = loadedEnd < totalCount;
 
   function matchInvoice(inv: Invoice, custMap: Map<number, string>): boolean {
-    const term = search.trim().toLowerCase();
+    const term = search.trim();
     if (term) {
-      const name = (custMap.get(inv.customer_id) || '').toLowerCase();
-      if (!inv.invoice_number.toLowerCase().includes(term) && !name.includes(term)) return false;
+      const custName = custMap.get(inv.customer_id) || inv.customer_name || '';
+      const matchesSearch = fuzzyMatchMulti([inv.invoice_number, inv.id, custName, inv.status, inv.total_amount], term);
+      if (!matchesSearch) return false;
     }
     if (statusFilter !== 'all') {
       const ns = inv.status.toLowerCase() === 'pending' ? 'unpaid' : inv.status.toLowerCase();
@@ -447,6 +450,7 @@ function InvoicesContent() {
     const email = await db.settings.get('business_email');
     const curr = await db.settings.get('currency_symbol');
     const logo = await db.settings.get('business_logo_url');
+    const termsSetting = await db.settings.get('default_terms');
 
     const businessInfo = {
       name: name?.value || 'SHAH WARIS TRADERS',
@@ -485,7 +489,10 @@ function InvoicesContent() {
       });
 
       payloadList.push({
-        invoice: inv,
+        invoice: {
+          ...inv,
+          terms_conditions: termsSetting?.value !== undefined ? termsSetting.value : (inv.terms_conditions || '')
+        },
         customer: cust,
         items: enrichedItems,
         businessInfo
@@ -1337,29 +1344,14 @@ function InvoicesContent() {
                 </table>
               </div>
 
-              {/* Pagination Bar */}
-              <div className="p-4 border-t border-slate-800 flex items-center justify-between text-xs text-slate-400 bg-slate-950">
-                <div>
-                  Showing {totalCount === 0 ? 0 : startIndex + 1}–{loadedEnd} of {totalCount} invoices
-                </div>
-                <div className="flex items-center space-x-2">
-                  <button
-                    onClick={goPrev}
-                    disabled={page === 0}
-                    className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 disabled:opacity-40 transition text-slate-200"
-                  >
-                    <ChevronLeft size={16} />
-                  </button>
-                  <span className="font-semibold text-white">Page {page + 1}</span>
-                  <button
-                    onClick={goNext}
-                    disabled={!hasMore}
-                    className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 disabled:opacity-40 transition text-slate-200"
-                  >
-                    <ChevronRight size={16} />
-                  </button>
-                </div>
-              </div>
+              <Pagination
+                currentPage={page + 1}
+                totalPages={Math.ceil(totalCount / PAGE_SIZE)}
+                totalItems={totalCount}
+                pageSize={PAGE_SIZE}
+                onPageChange={(p) => setPage(p - 1)}
+                itemName="invoices"
+              />
             </div>
           )}
         </>

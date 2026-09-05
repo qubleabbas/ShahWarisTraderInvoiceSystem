@@ -4,6 +4,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { Search, ChevronDown, Check, Building2, PlusCircle, X } from 'lucide-react';
 import { db, City } from '@/lib/db';
 import { useToast } from '@/components/ToastProvider';
+import { fuzzyFilter } from '@/lib/fuzzySearch';
 
 interface SearchableCitySelectProps {
   cities: City[];
@@ -38,11 +39,7 @@ export default function SearchableCitySelect({
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  const filteredCities = cities.filter((c) => {
-    const q = search.toLowerCase().trim();
-    if (!q) return true;
-    return c.name.toLowerCase().includes(q);
-  });
+  const filteredCities = fuzzyFilter(cities, search, (c) => [c.id, c.name]);
 
   async function handleSaveNewCity(e?: React.SyntheticEvent) {
     if (e) {

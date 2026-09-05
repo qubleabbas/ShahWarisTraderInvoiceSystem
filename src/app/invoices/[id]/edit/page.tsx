@@ -13,7 +13,7 @@ import {
   Upload,
   UserPlus
 } from 'lucide-react';
-import { db, Product, Customer, Invoice, InvoiceItem, Category, City, InvoiceTax, notifyDbMutation, recordTombstone } from '@/lib/db';
+import { db, Product, Customer, Invoice, InvoiceItem, Category, City, InvoiceTax, notifyDbMutation, recordTombstone, getCustomerProductDiscount, saveCustomerProductDiscount } from '@/lib/db';
 import { useToast } from '@/components/ToastProvider';
 import { reconcileInvoiceStatus, round2, getCustomerPendingBalance } from '@/lib/ledger';
 import SearchableProductSelect from '@/components/SearchableProductSelect';
@@ -186,20 +186,22 @@ export default function EditInvoicePage() {
 
   const productMap = new Map(products.map(p => [p.id!, p]));
 
-  // Customer selection with auto-applied discount logic
-  function handleSelectCustomer(cId: number) {
+  // Customer selection with auto-applied customer-product discount logic
+  async function handleSelectCustomer(cId: number) {
     setCustomerId(cId);
-    const selCust = customers.find(c => c.id === cId);
-    if (selCust && selCust.discount_percentage !== undefined && selCust.discount_percentage !== null) {
-      const discStr = String(selCust.discount_percentage);
-      setItems(prevItems =>
-        prevItems.map(item => ({
+    if (!cId) return;
+
+    const updated = await Promise.all(
+      items.map(async (item) => {
+        const saved = await getCustomerProductDiscount(cId, item.product_id);
+        return {
           ...item,
-          item_discount: discStr,
-          item_discount_type: 'percent'
-        }))
-      );
-    }
+          item_discount: saved ? String(saved.discount) : '0',
+          item_discount_type: saved ? saved.discount_type : 'percent'
+        };
+      })
+    );
+    setItems(updated);
   }
 
   // Calculate adjusted effective stock for each product (Current Stock + Original Quantity deducted by this invoice)
@@ -211,22 +213,28 @@ export default function EditInvoicePage() {
   });
 
   // Add Item Row
-  function handleAddItem() {
+  async function handleAddItem() {
     if (products.length === 0) return;
     const firstProd = products[0];
-    const selCust = customers.find(c => c.id === customerId);
-    const defaultDisc = (selCust && selCust.discount_percentage !== undefined && selCust.discount_percentage !== null)
-      ? String(selCust.discount_percentage)
-      : '0';
+    let discVal = '0';
+    let discType: 'percent' | 'fixed' = 'percent';
 
-    setItems([
-      ...items,
+    if (customerId) {
+      const saved = await getCustomerProductDiscount(customerId, firstProd.id!);
+      if (saved) {
+        discVal = String(saved.discount);
+        discType = saved.discount_type;
+      }
+    }
+
+    setItems(prev => [
+      ...prev,
       {
         product_id: firstProd.id!,
         quantity: '1',
         unit_price: String(firstProd.price),
-        item_discount: defaultDisc,
-        item_discount_type: 'percent'
+        item_discount: discVal,
+        item_discount_type: discType
       }
     ]);
   }
@@ -239,15 +247,32 @@ export default function EditInvoicePage() {
     setItems(items.filter((_, i) => i !== index));
   }
 
-  function handleProductChange(index: number, pId: number) {
+  async function handleProductChange(index: number, pId: number) {
     const p = productMap.get(pId);
-    const updated = [...items];
-    updated[index] = {
-      ...updated[index],
-      product_id: pId,
-      unit_price: p ? String(p.price) : '0'
-    };
-    setItems(updated);
+    let discVal = '0';
+    let discType: 'percent' | 'fixed' = 'percent';
+
+    if (customerId) {
+      const saved = await getCustomerProductDiscount(customerId, pId);
+      if (saved) {
+        discVal = String(saved.discount);
+        discType = saved.discount_type;
+      }
+    }
+
+    setItems(prev => {
+      const updated = [...prev];
+      if (updated[index]) {
+        updated[index] = {
+          ...updated[index],
+          product_id: pId,
+          unit_price: p ? String(p.price) : '0',
+          item_discount: discVal,
+          item_discount_type: discType
+        };
+      }
+      return updated;
+    });
   }
 
   // Stock Validation Check based on effective available stock
@@ -404,7 +429,7 @@ export default function EditInvoicePage() {
       // cross-device sync (edit replaces the invoice's line items wholesale).
       const oldItemKeys = await db.invoice_items.where('invoice_id').equals(id).primaryKeys();
 
-      await db.transaction('rw', [db.invoices, db.invoice_items, db.products], async () => {
+      await db.transaction('rw', [db.invoices, db.invoice_items, db.products, db.customer_product_discounts], async () => {
         // 1. Revert stock impact of original items
         for (const orig of originalItems) {
           const p = await db.products.get(orig.product_id);
@@ -442,7 +467,7 @@ export default function EditInvoicePage() {
           stamp_url: includeStamp ? (stampUrl || undefined) : undefined
         });
 
-        // 4. Add new line items & apply updated stock deduction
+        // 4. Add new line items & apply updated stock deduction & save Customer-Product Discount
         for (const item of items) {
           const q = parseFloat(item.quantity) || 0;
           const pPrice = parseFloat(item.unit_price) || 0;
@@ -465,6 +490,14 @@ export default function EditInvoicePage() {
             item_discount_type: item.item_discount_type || 'percent',
             line_total: lineTotal
           });
+
+          // Save / update Customer-Product discount preference for future invoices
+          await saveCustomerProductDiscount(
+            customerId,
+            item.product_id,
+            disc,
+            item.item_discount_type || 'percent'
+          );
 
           const freshProduct = await db.products.get(item.product_id);
           if (freshProduct) {
@@ -864,7 +897,7 @@ export default function EditInvoicePage() {
           <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-card space-y-4">
             <div>
               <label className="block text-xs font-bold uppercase tracking-wider text-slate-400 mb-1.5">
-                Editable Terms & Conditions
+                Editable Warranty Form
               </label>
               <textarea
                 rows={3}

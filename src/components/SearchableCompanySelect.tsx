@@ -4,6 +4,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { Search, ChevronDown, Check, Building, PlusCircle, X } from 'lucide-react';
 import { db, Company } from '@/lib/db';
 import { useToast } from '@/components/ToastProvider';
+import { fuzzyFilter } from '@/lib/fuzzySearch';
 
 interface SearchableCompanySelectProps {
   companies: Company[];
@@ -38,11 +39,7 @@ export default function SearchableCompanySelect({
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  const filteredCompanies = companies.filter((c) => {
-    const q = search.toLowerCase().trim();
-    if (!q) return true;
-    return c.name.toLowerCase().includes(q);
-  });
+  const filteredCompanies = fuzzyFilter(companies, search, (c) => [c.id, c.name]);
 
   async function handleSaveNewCompany(e?: React.SyntheticEvent) {
     if (e) {

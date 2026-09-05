@@ -57,6 +57,15 @@ export interface Customer {
   updated_at?: number;
 }
 
+export interface CustomerProductDiscount {
+  id?: number;
+  customer_id: number;
+  product_id: number;
+  discount: number;
+  discount_type?: 'percent' | 'fixed';
+  updated_at?: number;
+}
+
 export interface InvoiceItem {
   id?: number;
   invoice_id?: number;
@@ -175,6 +184,7 @@ export class QureshiDatabase extends Dexie {
   tax_rates!: Table<TaxRate, number>;
   settings!: Table<Setting, string>;
   tombstones!: Table<Tombstone, [string, number | string]>;
+  customer_product_discounts!: Table<CustomerProductDiscount, number>;
 
   constructor() {
     super('qureshi_inventory_db');
@@ -326,10 +336,95 @@ export class QureshiDatabase extends Dexie {
         }
       }
     });
+
+    // v10 — Customer-Product specific discount rules
+    this.version(10).stores({
+      categories: '++id, &name',
+      units: '++id, &name',
+      cities: '++id, &name',
+      companies: '++id, &name',
+      products: '++id, name, category_id, company_id, stock_quantity',
+      customers: '++id, name, phone, city_id, created_at',
+      invoices: '++id, &invoice_number, customer_id, status, created_at',
+      invoice_items: '++id, invoice_id, product_id',
+      payments: '++id, invoice_id, customer_id, payment_date, method, created_at',
+      tax_rates: '++id, &label',
+      settings: '&key',
+      tombstones: '&[table+key], ts',
+      customer_product_discounts: '++id, &[customer_id+product_id], customer_id, product_id'
+    }).upgrade(async (tx) => {
+      const now = Date.now();
+      const names = ['categories', 'units', 'cities', 'companies', 'products', 'customers', 'invoices', 'invoice_items', 'payments', 'tax_rates', 'settings', 'customer_product_discounts'];
+      for (const n of names) {
+        try {
+          await tx.table(n).toCollection().modify((r: any) => {
+            if (r.updated_at === undefined) r.updated_at = now;
+          });
+        } catch {
+          /* table may not exist in very old DBs — ignore */
+        }
+      }
+    });
   }
 }
 
 export const db = new QureshiDatabase();
+
+export async function getCustomerProductDiscount(
+  customerId: number,
+  productId: number
+): Promise<{ discount: number; discount_type: 'percent' | 'fixed' } | null> {
+  if (!customerId || !productId) return null;
+  try {
+    const record = await db.customer_product_discounts
+      .where('[customer_id+product_id]')
+      .equals([customerId, productId])
+      .first();
+    if (record) {
+      return {
+        discount: record.discount,
+        discount_type: record.discount_type || 'percent'
+      };
+    }
+  } catch (err) {
+    console.error('Error fetching customer product discount:', err);
+  }
+  return null;
+}
+
+export async function saveCustomerProductDiscount(
+  customerId: number,
+  productId: number,
+  discount: number,
+  discount_type: 'percent' | 'fixed' = 'percent'
+): Promise<void> {
+  if (!customerId || !productId) return;
+  try {
+    const existing = await db.customer_product_discounts
+      .where('[customer_id+product_id]')
+      .equals([customerId, productId])
+      .first();
+
+    const now = Date.now();
+    if (existing) {
+      await db.customer_product_discounts.update(existing.id!, {
+        discount,
+        discount_type,
+        updated_at: now
+      });
+    } else {
+      await db.customer_product_discounts.add({
+        customer_id: customerId,
+        product_id: productId,
+        discount,
+        discount_type,
+        updated_at: now
+      });
+    }
+  } catch (err) {
+    console.error('Error saving customer product discount:', err);
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Multi-device sync primitives

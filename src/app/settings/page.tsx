@@ -585,7 +585,7 @@ export default function SettingsPage() {
 
         <div>
           <label className="block text-xs font-semibold uppercase text-slate-400 mb-1">
-            Default Terms & Conditions
+            Default Warranty Form
           </label>
           <textarea
             rows={3}

@@ -12,7 +12,7 @@ import {
   CheckCircle2,
   UserPlus
 } from 'lucide-react';
-import { db, Product, Customer, Category, City, InvoiceTax } from '@/lib/db';
+import { db, Product, Customer, Category, City, InvoiceTax, getCustomerProductDiscount, saveCustomerProductDiscount } from '@/lib/db';
 import { useToast } from '@/components/ToastProvider';
 import SearchableProductSelect from '@/components/SearchableProductSelect';
 import SearchableCustomerSelect from '@/components/SearchableCustomerSelect';
@@ -124,18 +124,24 @@ export default function NewInvoicePage() {
         let initialCust = custs.length > 0 ? custs[0] : null;
         if (initialCust) setCustomerId(initialCust.id!);
 
-        const defaultDisc = (initialCust && initialCust.discount_percentage !== undefined && initialCust.discount_percentage !== null)
-          ? String(initialCust.discount_percentage)
-          : '0';
-
         if (prods.length > 0) {
+          let discVal = '0';
+          let discType: 'percent' | 'fixed' = 'percent';
+          if (initialCust) {
+            const savedDisc = await getCustomerProductDiscount(initialCust.id!, prods[0].id!);
+            if (savedDisc) {
+              discVal = String(savedDisc.discount);
+              discType = savedDisc.discount_type;
+            }
+          }
+
           setItems([
             {
               product_id: prods[0].id!,
               quantity: '1',
               unit_price: String(prods[0].price),
-              item_discount: defaultDisc,
-              item_discount_type: 'percent'
+              item_discount: discVal,
+              item_discount_type: discType
             }
           ]);
         }
@@ -169,39 +175,47 @@ export default function NewInvoicePage() {
   // Product Map
   const productMap = new Map(products.map(p => [p.id!, p]));
 
-  // Customer selection with auto-applied discount logic
-  function handleSelectCustomer(cId: number) {
+  // Customer selection with auto-applied customer-product discount logic
+  async function handleSelectCustomer(cId: number) {
     setCustomerId(cId);
-    const selCust = customers.find(c => c.id === cId);
-    if (selCust && selCust.discount_percentage !== undefined && selCust.discount_percentage !== null) {
-      const discStr = String(selCust.discount_percentage);
-      setItems(prevItems =>
-        prevItems.map(item => ({
+    if (!cId) return;
+
+    const updated = await Promise.all(
+      items.map(async (item) => {
+        const saved = await getCustomerProductDiscount(cId, item.product_id);
+        return {
           ...item,
-          item_discount: discStr,
-          item_discount_type: 'percent'
-        }))
-      );
-    }
+          item_discount: saved ? String(saved.discount) : '0',
+          item_discount_type: saved ? saved.discount_type : 'percent'
+        };
+      })
+    );
+    setItems(updated);
   }
 
   // Add Item Row
-  function handleAddItem() {
+  async function handleAddItem() {
     if (products.length === 0) return;
     const firstProd = products[0];
-    const selCust = customers.find(c => c.id === customerId);
-    const defaultDisc = (selCust && selCust.discount_percentage !== undefined && selCust.discount_percentage !== null)
-      ? String(selCust.discount_percentage)
-      : '0';
+    let discVal = '0';
+    let discType: 'percent' | 'fixed' = 'percent';
 
-    setItems([
-      ...items,
+    if (customerId) {
+      const saved = await getCustomerProductDiscount(customerId, firstProd.id!);
+      if (saved) {
+        discVal = String(saved.discount);
+        discType = saved.discount_type;
+      }
+    }
+
+    setItems(prev => [
+      ...prev,
       {
         product_id: firstProd.id!,
         quantity: '1',
         unit_price: String(firstProd.price),
-        item_discount: defaultDisc,
-        item_discount_type: 'percent'
+        item_discount: discVal,
+        item_discount_type: discType
       }
     ]);
   }
@@ -214,15 +228,32 @@ export default function NewInvoicePage() {
     setItems(items.filter((_, i) => i !== index));
   }
 
-  function handleProductChange(index: number, pId: number) {
+  async function handleProductChange(index: number, pId: number) {
     const p = productMap.get(pId);
-    const updated = [...items];
-    updated[index] = {
-      ...updated[index],
-      product_id: pId,
-      unit_price: p ? String(p.price) : '0'
-    };
-    setItems(updated);
+    let discVal = '0';
+    let discType: 'percent' | 'fixed' = 'percent';
+
+    if (customerId) {
+      const saved = await getCustomerProductDiscount(customerId, pId);
+      if (saved) {
+        discVal = String(saved.discount);
+        discType = saved.discount_type;
+      }
+    }
+
+    setItems(prev => {
+      const updated = [...prev];
+      if (updated[index]) {
+        updated[index] = {
+          ...updated[index],
+          product_id: pId,
+          unit_price: p ? String(p.price) : '0',
+          item_discount: discVal,
+          item_discount_type: discType
+        };
+      }
+      return updated;
+    });
   }
 
   // Quick quantity stepper (+/-) for fast invoice entry
@@ -397,7 +428,7 @@ export default function NewInvoicePage() {
           amount: (subtotalAfterDiscount * (parseFloat(t.rate) || 0)) / 100,
         }));
 
-      await db.transaction('rw', [db.invoices, db.invoice_items, db.products, db.payments], async () => {
+      await db.transaction('rw', [db.invoices, db.invoice_items, db.products, db.payments, db.customer_product_discounts], async () => {
         // Ledger-aware status: a brand-new invoice is Unpaid unless the user marks
         // it Paid, in which case a full payment record is created below so the
         // payment history and derived totals stay consistent.
@@ -439,7 +470,7 @@ export default function NewInvoicePage() {
           });
         }
 
-        // 2. Add Line Items & Deduct Stock
+        // 2. Add Line Items & Deduct Stock & Save Customer-Product Discount
         for (const item of items) {
           const q = parseFloat(item.quantity) || 0;
           const pPrice = parseFloat(item.unit_price) || 0;
@@ -462,6 +493,14 @@ export default function NewInvoicePage() {
             item_discount_type: item.item_discount_type || 'percent',
             line_total: lineTotal
           });
+
+          // Save / update Customer-Product discount preference for future invoices
+          await saveCustomerProductDiscount(
+            customerId,
+            item.product_id,
+            disc,
+            item.item_discount_type || 'percent'
+          );
 
           // Stock Deduction dynamically from database
           const currentProduct = await db.products.get(item.product_id);
@@ -829,7 +868,7 @@ export default function NewInvoicePage() {
           <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-card space-y-4">
             <div>
               <label className="block text-xs font-bold uppercase tracking-wider text-slate-400 mb-1.5">
-                Editable Terms & Conditions
+                Editable Warranty Form
               </label>
               <textarea
                 rows={3}

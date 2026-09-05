@@ -5,13 +5,43 @@ import InvoiceDocument, { InvoicePdfData } from '@/components/pdf/InvoiceDocumen
 import ThermalReceiptDocument from '@/components/pdf/ThermalReceiptDocument';
 import DeliveryCollectionDocument, { DeliverySheetItem } from '@/components/pdf/DeliveryCollectionDocument';
 import PendingPaymentsDocument, { CustomerPendingGroup } from '@/components/pdf/PendingPaymentsDocument';
+import CompanyStockDocument, { CompanyStockItem } from '@/components/pdf/CompanyStockDocument';
 
 export const dynamic = 'force-dynamic';
 
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const format: 'a4' | 'thermal' | 'delivery-sheet' | 'pending-payments' = body.format;
+    const format: 'a4' | 'thermal' | 'delivery-sheet' | 'pending-payments' | 'company-stock' = body.format;
+
+    if (format === 'company-stock') {
+      const items: CompanyStockItem[] = body.items || [];
+      const companyName: string = body.companyName || 'All Companies';
+
+      const documentEl = React.createElement(CompanyStockDocument, {
+        companyName,
+        items,
+        dateLabel: body.dateLabel,
+        businessName: body.businessName,
+        businessTagline: body.businessTagline,
+        businessAddress: body.businessAddress,
+        businessPhone: body.businessPhone,
+        businessEmail: body.businessEmail,
+        businessLogoUrl: body.businessLogoUrl,
+        currency: body.currency
+      });
+
+      const pdfBuffer = await renderToBuffer(documentEl as any);
+      const filename = `Company-Stock-Report-${companyName.replace(/\s+/g, '-')}-${Date.now()}.pdf`;
+
+      return new NextResponse(Buffer.from(pdfBuffer), {
+        status: 200,
+        headers: {
+          'Content-Type': 'application/pdf',
+          'Content-Disposition': `attachment; filename="${filename}"`
+        }
+      });
+    }
 
     if (format === 'pending-payments') {
       const customerGroups: CustomerPendingGroup[] = body.customerGroups || [];

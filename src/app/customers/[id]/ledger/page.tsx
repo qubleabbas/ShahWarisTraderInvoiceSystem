@@ -32,6 +32,7 @@ import {
 } from '@/lib/ledger';
 import { useToast } from '@/components/ToastProvider';
 import AddPaymentModal, { PaymentTargetInvoice } from '@/components/AddPaymentModal';
+import Pagination from '@/components/Pagination';
 
 type Tab = 'invoices' | 'history' | 'statement';
 type DatePreset = 'all' | 'today' | 'yesterday' | 'week' | 'month' | 'custom';
@@ -52,13 +53,22 @@ export default function CustomerLedgerPage() {
   const [editingPayment, setEditingPayment] = useState<Payment | null>(null);
   const [modalOpen, setModalOpen] = useState(false);
 
-  // History filters
+  // History filters & Pagination
   const [datePreset, setDatePreset] = useState<DatePreset>('all');
   const [customStart, setCustomStart] = useState('');
   const [customEnd, setCustomEnd] = useState('');
   const [invoiceFilter, setInvoiceFilter] = useState<string>('all');
   const [methodFilter, setMethodFilter] = useState<string>('all');
   const [sortOrder, setSortOrder] = useState<'newest' | 'oldest'>('newest');
+
+  const [histPage, setHistPage] = useState(1);
+  const [histPageSize, setHistPageSize] = useState(25);
+  const [stmtPage, setStmtPage] = useState(1);
+  const [stmtPageSize, setStmtPageSize] = useState(25);
+
+  useEffect(() => {
+    setHistPage(1);
+  }, [datePreset, customStart, customEnd, invoiceFilter, methodFilter, sortOrder]);
 
   useEffect(() => {
     if (!customerId) return;
@@ -509,54 +519,67 @@ export default function CustomerLedgerPage() {
             </div>
           </div>
 
-          {/* Payment list */}
           {filteredPayments.length === 0 ? (
             <EmptyState text="No payments match the selected filters." />
           ) : (
-            <div className="space-y-2.5">
-              {filteredPayments.map((p) => {
-                const dt = formatDateTime(p.payment_date);
-                return (
-                  <div
-                    key={p.id}
-                    className="flex flex-col gap-3 rounded-2xl border border-slate-800 bg-slate-900 p-4 shadow-card sm:flex-row sm:items-center sm:justify-between"
-                  >
-                    <div className="flex items-center gap-3">
-                      <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-emerald-500/10 text-emerald-400">
-                        <Wallet size={18} />
-                      </span>
-                      <div>
-                        <p className="font-bold text-white">{money(p.amount)}</p>
-                        <p className="text-xs text-slate-400">
-                          {dt.date} · {dt.time} · {p.method}
-                        </p>
-                        <p className="text-[11px] text-slate-500">
-                          Invoice {p.invoice_number}
-                          {p.reference ? ` · Ref: ${p.reference}` : ''}
-                          {p.is_migrated ? ' · (opening balance)' : ''}
-                        </p>
-                        {p.notes && <p className="mt-0.5 text-[11px] italic text-slate-500">“{p.notes}”</p>}
+            <div className="space-y-4">
+              <div className="space-y-2.5">
+                {filteredPayments
+                  .slice((histPage - 1) * histPageSize, histPage * histPageSize)
+                  .map((p) => {
+                    const dt = formatDateTime(p.payment_date);
+                    return (
+                      <div
+                        key={p.id}
+                        className="flex flex-col gap-3 rounded-2xl border border-slate-800 bg-slate-900 p-4 shadow-card sm:flex-row sm:items-center sm:justify-between"
+                      >
+                        <div className="flex items-center gap-3">
+                          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-emerald-500/10 text-emerald-400">
+                            <Wallet size={18} />
+                          </span>
+                          <div>
+                            <p className="font-bold text-white">{money(p.amount)}</p>
+                            <p className="text-xs text-slate-400">
+                              {dt.date} · {dt.time} · {p.method}
+                            </p>
+                            <p className="text-[11px] text-slate-500">
+                              Invoice {p.invoice_number}
+                              {p.reference ? ` · Ref: ${p.reference}` : ''}
+                              {p.is_migrated ? ' · (opening balance)' : ''}
+                            </p>
+                            {p.notes && <p className="mt-0.5 text-[11px] italic text-slate-500">“{p.notes}”</p>}
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-2 self-end sm:self-auto">
+                          <button
+                            onClick={() => openEditPayment(p)}
+                            className="rounded-lg bg-slate-800 p-2 text-amber-400 transition hover:bg-slate-700"
+                            title="Edit payment"
+                          >
+                            <Edit2 size={15} />
+                          </button>
+                          <button
+                            onClick={() => handleDeletePayment(p)}
+                            className="rounded-lg bg-slate-800 p-2 text-slate-400 transition hover:bg-rose-900/50 hover:text-rose-400"
+                            title="Delete payment"
+                          >
+                            <Trash2 size={15} />
+                          </button>
+                        </div>
                       </div>
-                    </div>
-                    <div className="flex items-center gap-2 self-end sm:self-auto">
-                      <button
-                        onClick={() => openEditPayment(p)}
-                        className="rounded-lg bg-slate-800 p-2 text-amber-400 transition hover:bg-slate-700"
-                        title="Edit payment"
-                      >
-                        <Edit2 size={15} />
-                      </button>
-                      <button
-                        onClick={() => handleDeletePayment(p)}
-                        className="rounded-lg bg-slate-800 p-2 text-slate-400 transition hover:bg-rose-900/50 hover:text-rose-400"
-                        title="Delete payment"
-                      >
-                        <Trash2 size={15} />
-                      </button>
-                    </div>
-                  </div>
-                );
-              })}
+                    );
+                  })}
+              </div>
+
+              <Pagination
+                currentPage={histPage}
+                totalPages={Math.ceil(filteredPayments.length / histPageSize)}
+                totalItems={filteredPayments.length}
+                pageSize={histPageSize}
+                onPageChange={setHistPage}
+                onPageSizeChange={setHistPageSize}
+                itemName="payments"
+              />
             </div>
           )}
         </div>

@@ -253,7 +253,8 @@ export default function ThermalReceiptDocument({ invoices }: ThermalReceiptDocum
               const displayLineTotal =
                 item.line_total !== undefined ? item.line_total : Math.max(0, grossLine - lineDiscVal);
               const name = item.product_name || 'Product';
-              const fullName = item.unit && item.unit.trim() !== '' ? `${name} (${item.unit})` : name;
+              const pIdPrefix = item.product_id ? `#${item.product_id} - ` : '';
+              const fullName = item.unit && item.unit.trim() !== '' ? `${pIdPrefix}${name} (${item.unit})` : `${pIdPrefix}${name}`;
 
               return (
                 <View key={idx} wrap={false}>
@@ -359,7 +360,7 @@ export default function ThermalReceiptDocument({ invoices }: ThermalReceiptDocum
             {invoice.terms_conditions ? (
               <View style={styles.termsSection}>
                 <View style={styles.divider} />
-                <Text style={styles.termsTitle}>Terms &amp; Conditions</Text>
+                <Text style={styles.termsTitle}>WARRANTY FORM</Text>
                 <Text style={styles.termsBody}>{invoice.terms_conditions}</Text>
               </View>
             ) : null}

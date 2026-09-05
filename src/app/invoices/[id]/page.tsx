@@ -107,8 +107,14 @@ export default function SingleInvoicePage() {
       const email = await db.settings.get('business_email');
       const curr = await db.settings.get('currency_symbol');
       const logo = await db.settings.get('business_logo_url');
+      const termsSetting = await db.settings.get('default_terms');
 
-      setInvoice(inv);
+      const activeInvoice = {
+        ...inv,
+        terms_conditions: termsSetting?.value !== undefined ? termsSetting.value : (inv.terms_conditions || '')
+      };
+
+      setInvoice(activeInvoice);
       setCustomer(cust);
       setItems(enrichedItems);
       setPayments(invPayments.sort((a, b) => new Date(b.payment_date).getTime() - new Date(a.payment_date).getTime()));

@@ -3,6 +3,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Search, ChevronDown, Check, Package } from 'lucide-react';
 import { Product, Category } from '@/lib/db';
+import { fuzzyFilter } from '@/lib/fuzzySearch';
 
 interface SearchableProductSelectProps {
   products: Product[];
@@ -38,16 +39,12 @@ export default function SearchableProductSelect({
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  const filteredProducts = products.filter((p) => {
-    const q = search.toLowerCase().trim();
-    if (!q) return true;
-    const catName = (categoryMap.get(p.category_id) || '').toLowerCase();
-    return (
-      p.name.toLowerCase().includes(q) ||
-      p.unit.toLowerCase().includes(q) ||
-      catName.includes(q)
-    );
-  });
+  const filteredProducts = fuzzyFilter(products, search, (p) => [
+    p.id,
+    p.name,
+    p.unit,
+    categoryMap.get(p.category_id)
+  ]);
 
   return (
     <div ref={wrapperRef} className="relative w-full">
@@ -60,7 +57,7 @@ export default function SearchableProductSelect({
         <div className="flex items-center space-x-2 truncate">
           <Package size={14} className="text-emerald-400 flex-shrink-0" />
           <span className="font-semibold truncate">
-            {selectedProduct ? `${selectedProduct.name} (${selectedProduct.unit})` : 'Select Product...'}
+            {selectedProduct ? `#${selectedProduct.id} - ${selectedProduct.name} (${selectedProduct.unit})` : 'Select Product...'}
           </span>
         </div>
         <ChevronDown size={14} className={`text-slate-400 transition-transform ${isOpen ? 'rotate-180' : ''}`} />
@@ -75,7 +72,7 @@ export default function SearchableProductSelect({
             <input
               type="text"
               autoFocus
-              placeholder="Search product name, unit, category..."
+              placeholder="Search by ID (#12), name, unit, category..."
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               className="w-full bg-slate-900 border border-slate-800 rounded-lg pl-8 pr-3 py-1.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500"
@@ -108,7 +105,12 @@ export default function SearchableProductSelect({
                     }`}
                   >
                     <div className="space-y-0.5 truncate">
-                      <div className="font-semibold text-white truncate">{p.name}</div>
+                      <div className="flex items-center space-x-1.5 truncate">
+                        <span className="text-[10px] bg-slate-800 text-slate-300 font-semibold px-1.5 py-0.5 rounded border border-slate-700/60 font-mono">
+                          #{p.id}
+                        </span>
+                        <span className="font-semibold text-white truncate">{p.name}</span>
+                      </div>
                       <div className="text-[10px] text-slate-400 flex items-center space-x-2">
                         <span>{p.unit}</span>
                         <span>•</span>

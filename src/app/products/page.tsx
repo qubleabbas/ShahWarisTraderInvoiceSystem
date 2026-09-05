@@ -2,18 +2,21 @@
 
 import React, { useState, useEffect, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
-import { Package, Plus, Search, Edit2, Trash2, AlertTriangle, Eye, History, ArrowDownRight, Building, Scale, FolderTree } from 'lucide-react';
+import { Package, Plus, Search, Edit2, Trash2, AlertTriangle, Eye, History, ArrowDownRight, Building, Scale, FolderTree, Boxes, Printer, Download, FileSpreadsheet, BarChart3 } from 'lucide-react';
 import { db, Product, Category, Company, Unit, InvoiceItem, Invoice, Customer, recordTombstone, subscribeDataChanged } from '@/lib/db';
 import { useToast } from '@/components/ToastProvider';
 import SearchableCompanySelect from '@/components/SearchableCompanySelect';
+import { fuzzyFilter } from '@/lib/fuzzySearch';
+import { CompanyStockItem } from '@/components/pdf/CompanyStockDocument';
+import Pagination from '@/components/Pagination';
 
 function ProductsContent() {
   const { showToast } = useToast();
   const searchParams = useSearchParams();
   const tabParam = searchParams.get('tab');
-  const initialTab = tabParam === 'categories' ? 'categories' : tabParam === 'units' ? 'units' : tabParam === 'companies' ? 'companies' : 'products';
+  const initialTab = tabParam === 'stock' ? 'stock' : tabParam === 'categories' ? 'categories' : tabParam === 'units' ? 'units' : tabParam === 'companies' ? 'companies' : 'products';
 
-  const [activeTab, setActiveTab] = useState<'products' | 'categories' | 'companies' | 'units'>(initialTab);
+  const [activeTab, setActiveTab] = useState<'products' | 'stock' | 'categories' | 'companies' | 'units'>(initialTab);
   const [products, setProducts] = useState<Product[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [companies, setCompanies] = useState<Company[]>([]);
@@ -27,6 +30,8 @@ function ProductsContent() {
   const [search, setSearch] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
   const [selectedCompany, setSelectedCompany] = useState<string>('all');
+  const [stockCompanyId, setStockCompanyId] = useState<string>('all');
+  const [isExportingPdf, setIsExportingPdf] = useState(false);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isDetailModalOpen, setIsDetailModalOpen] = useState(false);
 
@@ -76,7 +81,33 @@ function ProductsContent() {
   const [restockQty, setRestockQty] = useState<number>(0);
   const [restockPrice, setRestockPrice] = useState<number>(0);
 
+  // Pagination states
+  const [prodPage, setProdPage] = useState(1);
+  const [prodPageSize, setProdPageSize] = useState(25);
+  const [stockPage, setStockPage] = useState(1);
+  const [stockPageSize, setStockPageSize] = useState(25);
+  const [catPage, setCatPage] = useState(1);
+  const [catPageSize, setCatPageSize] = useState(25);
+  const [compPage, setCompPage] = useState(1);
+  const [compPageSize, setCompPageSize] = useState(25);
+  const [unitPage, setUnitPage] = useState(1);
+  const [unitPageSize, setUnitPageSize] = useState(25);
+
   const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    setProdPage(1);
+  }, [search, selectedCategory, selectedCompany]);
+
+  useEffect(() => {
+    setStockPage(1);
+  }, [search, stockCompanyId]);
+
+  useEffect(() => {
+    setCatPage(1);
+    setCompPage(1);
+    setUnitPage(1);
+  }, [search]);
 
   useEffect(() => {
     loadData();
@@ -433,24 +464,254 @@ function ProductsContent() {
     }
   }
 
+  const maxProductId = products.reduce((max, p) => (p.id && p.id > max ? p.id : max), 0);
+  const nextProductId = maxProductId + 1;
+
   const filteredProducts = products.filter(p => {
-    const matchesSearch = p.name.toLowerCase().includes(search.toLowerCase());
+    const matchesSearch = fuzzyFilter([p], search, item => [
+      item.id,
+      item.name,
+      item.unit,
+      categoryMap.get(item.category_id),
+      item.company_id ? companyMap.get(item.company_id) : undefined
+    ]).length > 0;
+
     const matchesCategory = selectedCategory === 'all' || p.category_id === Number(selectedCategory);
     const matchesCompany = selectedCompany === 'all' || p.company_id === Number(selectedCompany);
     return matchesSearch && matchesCategory && matchesCompany;
   });
 
-  const filteredCategories = categories.filter((c) =>
-    c.name.toLowerCase().includes(search.toLowerCase())
-  );
+  const filteredCategories = fuzzyFilter(categories, search, (c) => [c.id, c.name]);
+  const filteredCompanies = fuzzyFilter(companies, search, (c) => [c.id, c.name]);
+  const filteredUnits = fuzzyFilter(units, search, (u) => [u.id, u.name]);
 
-  const filteredCompanies = companies.filter(c =>
-    c.name.toLowerCase().includes(search.toLowerCase())
-  );
+  // Company Stock Calculations & Export
+  const selectedStockCompanyObj = stockCompanyId === 'all'
+    ? undefined
+    : companies.find(c => c.id === Number(stockCompanyId));
 
-  const filteredUnits = units.filter(u =>
-    u.name.toLowerCase().includes(search.toLowerCase())
-  );
+  const stockCompanyLabel = selectedStockCompanyObj
+    ? selectedStockCompanyObj.name
+    : 'All Companies';
+
+  const companyStockProducts = products
+    .filter(p => {
+      if (stockCompanyId === 'all') return true;
+      return p.company_id === Number(stockCompanyId);
+    })
+    .map(p => {
+      const purPrice = p.purchase_price ?? p.cost_price ?? 0;
+      const totalStockValue = p.stock_quantity * purPrice;
+      const totalRetailValue = p.stock_quantity * p.price;
+      const catName = categoryMap.get(p.category_id) || 'Uncategorized';
+      return {
+        ...p,
+        purchase_price: purPrice,
+        totalStockValue,
+        totalRetailValue,
+        categoryName: catName
+      };
+    })
+    .sort((a, b) => a.name.localeCompare(b.name));
+
+  const totalCompanyProductsCount = companyStockProducts.length;
+  const totalCompanyStockUnits = companyStockProducts.reduce((sum, p) => sum + p.stock_quantity, 0);
+  const totalCompanyStockValuation = companyStockProducts.reduce((sum, p) => sum + p.totalStockValue, 0);
+  const totalCompanyRetailValuation = companyStockProducts.reduce((sum, p) => sum + p.totalRetailValue, 0);
+  const totalCompanyProfitPotential = totalCompanyRetailValuation - totalCompanyStockValuation;
+
+  const paginatedProducts = filteredProducts.slice((prodPage - 1) * prodPageSize, prodPage * prodPageSize);
+  const paginatedStockProducts = companyStockProducts.slice((stockPage - 1) * stockPageSize, stockPage * stockPageSize);
+  const paginatedCategories = filteredCategories.slice((catPage - 1) * catPageSize, catPage * catPageSize);
+  const paginatedCompanies = filteredCompanies.slice((compPage - 1) * compPageSize, compPage * compPageSize);
+  const paginatedUnits = filteredUnits.slice((unitPage - 1) * unitPageSize, unitPage * unitPageSize);
+
+  async function handlePrintCompanyStock() {
+    try {
+      setIsExportingPdf(true);
+      showToast('Preparing vector PDF print for company stock report...', 'info');
+
+      const bName = (await db.settings.get('business_name'))?.value || 'Qureshi Sharbat & Majoon House';
+      const bTagline = (await db.settings.get('business_tagline'))?.value || 'Manufacturers of Pure Herbal Sharbats, Majoons & Distillates';
+      const bAddr = (await db.settings.get('business_address'))?.value || '14-B Industrial Area, Station Road, Gujranwala';
+      const bPhone = (await db.settings.get('business_phone'))?.value || '+92 300 8889900 / +92 55 4231100';
+      const bEmail = (await db.settings.get('business_email'))?.value || 'orders@qureshisharbat.com';
+      const bLogo = (await db.settings.get('logo_url'))?.value;
+
+      const pdfItems: CompanyStockItem[] = companyStockProducts.map(p => ({
+        id: p.id,
+        name: p.name,
+        unit: p.unit,
+        stock_quantity: p.stock_quantity,
+        purchase_price: p.purchase_price,
+        price: p.price,
+        totalStockValue: p.totalStockValue,
+        totalRetailValue: p.totalRetailValue,
+        categoryName: p.categoryName
+      }));
+
+      const res = await fetch('/api/generate-pdf', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          format: 'company-stock',
+          companyName: stockCompanyLabel,
+          items: pdfItems,
+          businessName: bName,
+          businessTagline: bTagline,
+          businessAddress: bAddr,
+          businessPhone: bPhone,
+          businessEmail: bEmail,
+          businessLogoUrl: bLogo,
+          currency
+        })
+      });
+
+      if (!res.ok) {
+        throw new Error('Failed to generate PDF');
+      }
+
+      const blob = await res.blob();
+      const blobUrl = URL.createObjectURL(blob);
+
+      const iframe = document.createElement('iframe');
+      iframe.style.position = 'fixed';
+      iframe.style.right = '0';
+      iframe.style.bottom = '0';
+      iframe.style.width = '0';
+      iframe.style.height = '0';
+      iframe.style.border = '0';
+      iframe.style.visibility = 'hidden';
+      iframe.src = blobUrl;
+
+      document.body.appendChild(iframe);
+
+      iframe.onload = () => {
+        setTimeout(() => {
+          try {
+            iframe.contentWindow?.focus();
+            iframe.contentWindow?.print();
+          } catch (e) {
+            console.error(e);
+          }
+          setTimeout(() => {
+            if (document.body.contains(iframe)) {
+              document.body.removeChild(iframe);
+            }
+            URL.revokeObjectURL(blobUrl);
+          }, 60000);
+        }, 300);
+      };
+    } catch (err) {
+      console.error(err);
+      showToast('Failed to print company stock report.', 'error');
+    } finally {
+      setIsExportingPdf(false);
+    }
+  }
+
+  async function handleDownloadCompanyStockPdf() {
+    try {
+      setIsExportingPdf(true);
+      showToast('Generating A4 PDF stock report...', 'info');
+
+      const bName = (await db.settings.get('business_name'))?.value || 'Qureshi Sharbat & Majoon House';
+      const bTagline = (await db.settings.get('business_tagline'))?.value || 'Manufacturers of Pure Herbal Sharbats, Majoons & Distillates';
+      const bAddr = (await db.settings.get('business_address'))?.value || '14-B Industrial Area, Station Road, Gujranwala';
+      const bPhone = (await db.settings.get('business_phone'))?.value || '+92 300 8889900 / +92 55 4231100';
+      const bEmail = (await db.settings.get('business_email'))?.value || 'orders@qureshisharbat.com';
+      const bLogo = (await db.settings.get('logo_url'))?.value;
+
+      const pdfItems: CompanyStockItem[] = companyStockProducts.map(p => ({
+        id: p.id,
+        name: p.name,
+        unit: p.unit,
+        stock_quantity: p.stock_quantity,
+        purchase_price: p.purchase_price,
+        price: p.price,
+        totalStockValue: p.totalStockValue,
+        totalRetailValue: p.totalRetailValue,
+        categoryName: p.categoryName
+      }));
+
+      const res = await fetch('/api/generate-pdf', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          format: 'company-stock',
+          companyName: stockCompanyLabel,
+          items: pdfItems,
+          businessName: bName,
+          businessTagline: bTagline,
+          businessAddress: bAddr,
+          businessPhone: bPhone,
+          businessEmail: bEmail,
+          businessLogoUrl: bLogo,
+          currency
+        })
+      });
+
+      if (!res.ok) {
+        throw new Error('Failed to generate PDF');
+      }
+
+      const blob = await res.blob();
+      const blobUrl = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = blobUrl;
+      link.download = `Company-Stock-Report-${stockCompanyLabel.replace(/\s+/g, '-')}-${Date.now()}.pdf`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(blobUrl);
+      showToast('PDF Stock Report downloaded successfully!', 'success');
+    } catch (err) {
+      console.error(err);
+      showToast('Failed to download PDF stock report.', 'error');
+    } finally {
+      setIsExportingPdf(false);
+    }
+  }
+
+  function handleExportCompanyStockCsv() {
+    try {
+      const headers = ['Product ID', 'Product Name', 'Category', 'Packaging Unit', 'Stock Quantity', `Purchase Price (${currency})`, `Total Stock Value (${currency})`].join(',');
+      const rows = companyStockProducts.map(p => [
+        `"#${p.id || ''}"`,
+        `"${p.name.replace(/"/g, '""')}"`,
+        `"${(p.categoryName || '').replace(/"/g, '""')}"`,
+        `"${(p.unit || '').replace(/"/g, '""')}"`,
+        p.stock_quantity,
+        p.purchase_price,
+        p.totalStockValue.toFixed(2)
+      ].join(','));
+
+      const csvContent = [
+        `Company Stock Report - ${stockCompanyLabel}`,
+        `Report Date: ${new Date().toLocaleDateString()}`,
+        `Total Products: ${totalCompanyProductsCount}`,
+        `Total Stock Units: ${totalCompanyStockUnits}`,
+        `Total Stock Purchase Valuation: ${currency} ${totalCompanyStockValuation.toFixed(2)}`,
+        '',
+        headers,
+        ...rows
+      ].join('\n');
+
+      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `Company-Stock-Report-${stockCompanyLabel.replace(/\s+/g, '-')}-${Date.now()}.csv`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+      showToast('CSV Stock Report exported successfully!', 'success');
+    } catch (err) {
+      console.error(err);
+      showToast('Failed to export CSV.', 'error');
+    }
+  }
 
   const getProductHistory = (productId: number) => {
     const items = invoiceItems.filter(item => item.product_id === productId);
@@ -553,6 +814,22 @@ function ProductsContent() {
         <button
           type="button"
           onClick={() => {
+            setActiveTab('stock');
+            setSearch('');
+          }}
+          className={`flex items-center space-x-2 px-4 py-2 rounded-lg text-xs font-bold transition ${
+            activeTab === 'stock'
+              ? 'bg-emerald-600 text-white shadow-md'
+              : 'text-slate-400 hover:text-white'
+          }`}
+        >
+          <Boxes size={16} />
+          <span>Company Stock Valuation</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => {
             setActiveTab('categories');
             setSearch('');
           }}
@@ -606,7 +883,7 @@ function ProductsContent() {
             <Search className="absolute left-3.5 top-3 text-slate-400" size={18} />
             <input
               type="text"
-              placeholder="Search product by name..."
+              placeholder="Search product by name or ID (e.g. #12)..."
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               className="w-full bg-slate-900 border border-slate-800 rounded-xl pl-10 pr-4 py-2.5 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500"
@@ -672,117 +949,132 @@ function ProductsContent() {
               No products found matching your filter criteria.
             </div>
           ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-              {filteredProducts.map((prod) => {
-                const isLowStock = prod.stock_quantity <= (prod.min_stock_warning || 10);
-                const categoryName = categoryMap.get(prod.category_id) || 'Uncategorized';
-                const companyName = prod.company_id ? companyMap.get(prod.company_id) : undefined;
-                const purchasePrice = prod.purchase_price ?? prod.cost_price ?? 0;
+            <div className="space-y-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+                {paginatedProducts.map((prod) => {
+                  const isLowStock = prod.stock_quantity <= (prod.min_stock_warning || 10);
+                  const categoryName = categoryMap.get(prod.category_id) || 'Uncategorized';
+                  const companyName = prod.company_id ? companyMap.get(prod.company_id) : undefined;
+                  const purchasePrice = prod.purchase_price ?? prod.cost_price ?? 0;
 
-                return (
-                  <div
-                    key={prod.id}
-                    className={`bg-slate-900 border ${
-                      isLowStock ? 'border-amber-500/50' : 'border-slate-800'
-                    } rounded-2xl p-5 shadow-card hover:border-slate-700 transition flex flex-col justify-between space-y-4`}
-                  >
-                    <div className="space-y-2">
-                      <div className="flex items-start justify-between">
-                        <div>
-                          <div className="flex flex-wrap items-center gap-1.5 mb-1">
-                            <span className="text-[10px] bg-slate-800 text-slate-300 font-semibold px-2 py-0.5 rounded-md">
-                              {categoryName}
-                            </span>
-                            {companyName && (
-                              <span className="inline-flex items-center space-x-1 text-[10px] bg-emerald-950/80 text-emerald-400 border border-emerald-800/40 font-semibold px-2 py-0.5 rounded-md">
-                                <Building size={11} />
-                                <span>{companyName}</span>
+                  return (
+                    <div
+                      key={prod.id}
+                      className={`bg-slate-900 border ${
+                        isLowStock ? 'border-amber-500/50' : 'border-slate-800'
+                      } rounded-2xl p-5 shadow-card hover:border-slate-700 transition flex flex-col justify-between space-y-4`}
+                    >
+                      <div className="space-y-2">
+                        <div className="flex items-start justify-between">
+                          <div>
+                            <div className="flex flex-wrap items-center gap-1.5 mb-1">
+                              <span className="text-[10px] bg-slate-800 text-slate-300 font-semibold px-2 py-0.5 rounded-md border border-slate-700/60">
+                                ID: #{prod.id}
                               </span>
-                            )}
+                              <span className="text-[10px] bg-slate-800 text-slate-300 font-semibold px-2 py-0.5 rounded-md">
+                                {categoryName}
+                              </span>
+                              {companyName && (
+                                <span className="inline-flex items-center space-x-1 text-[10px] bg-emerald-950/80 text-emerald-400 border border-emerald-800/40 font-semibold px-2 py-0.5 rounded-md">
+                                  <Building size={11} />
+                                  <span>{companyName}</span>
+                                </span>
+                              )}
+                            </div>
+                            <h3 className="font-bold text-lg text-white">{prod.name}</h3>
                           </div>
-                          <h3 className="font-bold text-lg text-white">{prod.name}</h3>
+                          {isLowStock && (
+                            <span className="flex items-center space-x-1 text-xs text-amber-400 bg-amber-400/10 px-2 py-1 rounded-md font-semibold">
+                              <AlertTriangle size={14} />
+                              <span>Low Stock</span>
+                            </span>
+                          )}
                         </div>
-                        {isLowStock && (
-                          <span className="flex items-center space-x-1 text-xs text-amber-400 bg-amber-400/10 px-2 py-1 rounded-md font-semibold">
-                            <AlertTriangle size={14} />
-                            <span>Low Stock</span>
-                          </span>
-                        )}
+
+                        <div className="pt-2 border-t border-slate-800/60 grid grid-cols-2 gap-2 text-xs">
+                          <div>
+                            <p className="text-[10px] text-slate-500 font-semibold uppercase">Purchase Price</p>
+                            <p className="font-bold text-slate-300">
+                              {currency} {purchasePrice.toLocaleString()}
+                            </p>
+                          </div>
+                          <div>
+                            <p className="text-[10px] text-slate-500 font-semibold uppercase">Sale Price</p>
+                            <p className="font-extrabold text-emerald-400">
+                              {currency} {prod.price.toLocaleString()}
+                            </p>
+                          </div>
+                        </div>
                       </div>
 
-                      <div className="pt-2 border-t border-slate-800/60 grid grid-cols-2 gap-2 text-xs">
-                        <div>
-                          <p className="text-[10px] text-slate-500 font-semibold uppercase">Purchase Price</p>
-                          <p className="font-bold text-slate-300">
-                            {currency} {purchasePrice.toLocaleString()}
-                          </p>
+                      <div className="pt-3 border-t border-slate-800 space-y-3">
+                        <div className="grid grid-cols-2 gap-2 bg-slate-950/60 p-3 rounded-xl border border-slate-800/80">
+                          <div>
+                            <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 block">Available Stock</span>
+                            <span className={`inline-flex items-center gap-1.5 mt-1 px-2.5 py-1 rounded-lg text-xs font-extrabold ${
+                              isLowStock ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40' : 'bg-emerald-500/10 text-emerald-300 border border-emerald-500/30'
+                            }`}>
+                              <Package size={13} />
+                              <span>{prod.stock_quantity} in stock</span>
+                            </span>
+                          </div>
+                          <div className="text-right">
+                            <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 block">Packaging Unit</span>
+                            <span className="text-xs font-bold text-slate-200 block mt-1.5 truncate" title={prod.unit}>
+                              {prod.unit}
+                            </span>
+                          </div>
                         </div>
-                        <div>
-                          <p className="text-[10px] text-slate-500 font-semibold uppercase">Sale Price</p>
-                          <p className="font-extrabold text-emerald-400">
-                            {currency} {prod.price.toLocaleString()}
-                          </p>
+
+                        <div className="flex items-center gap-1.5">
+                          <button
+                            onClick={() => handleOpenModal(prod, 'restock')}
+                            className="flex flex-1 items-center justify-center gap-1.5 rounded-lg bg-emerald-600/20 px-3 py-2 text-xs font-semibold text-emerald-400 transition hover:bg-emerald-600 hover:text-white"
+                            title="Restock Product & Calculate Weighted Avg Price"
+                          >
+                            <ArrowDownRight size={15} />
+                            <span>Restock</span>
+                          </button>
+                          <button
+                            onClick={() => {
+                              setViewingProduct(prod);
+                              setIsDetailModalOpen(true);
+                            }}
+                            className="p-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 transition"
+                            title="View Product Sales History"
+                          >
+                            <Eye size={16} />
+                          </button>
+                          <button
+                            onClick={() => handleOpenModal(prod, 'details')}
+                            className="p-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-emerald-400 transition"
+                            title="Edit Product Details"
+                          >
+                            <Edit2 size={16} />
+                          </button>
+                          <button
+                            onClick={() => handleDeleteProduct(prod.id!)}
+                            className="p-2 rounded-lg bg-slate-800 hover:bg-rose-900/50 text-slate-400 hover:text-rose-400 transition"
+                            title="Delete Product"
+                          >
+                            <Trash2 size={16} />
+                          </button>
                         </div>
                       </div>
                     </div>
+                  );
+                })}
+              </div>
 
-                    <div className="pt-3 border-t border-slate-800 space-y-3">
-                      <div className="grid grid-cols-2 gap-2 bg-slate-950/60 p-3 rounded-xl border border-slate-800/80">
-                        <div>
-                          <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 block">Available Stock</span>
-                          <span className={`inline-flex items-center gap-1.5 mt-1 px-2.5 py-1 rounded-lg text-xs font-extrabold ${
-                            isLowStock ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40' : 'bg-emerald-500/10 text-emerald-300 border border-emerald-500/30'
-                          }`}>
-                            <Package size={13} />
-                            <span>{prod.stock_quantity} in stock</span>
-                          </span>
-                        </div>
-                        <div className="text-right">
-                          <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 block">Packaging Unit</span>
-                          <span className="text-xs font-bold text-slate-200 block mt-1.5 truncate" title={prod.unit}>
-                            {prod.unit}
-                          </span>
-                        </div>
-                      </div>
-
-                      <div className="flex items-center gap-1.5">
-                        <button
-                          onClick={() => handleOpenModal(prod, 'restock')}
-                          className="flex flex-1 items-center justify-center gap-1.5 rounded-lg bg-emerald-600/20 px-3 py-2 text-xs font-semibold text-emerald-400 transition hover:bg-emerald-600 hover:text-white"
-                          title="Restock Product & Calculate Weighted Avg Price"
-                        >
-                          <ArrowDownRight size={15} />
-                          <span>Restock</span>
-                        </button>
-                        <button
-                          onClick={() => {
-                            setViewingProduct(prod);
-                            setIsDetailModalOpen(true);
-                          }}
-                          className="p-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 transition"
-                          title="View Product Sales History"
-                        >
-                          <Eye size={16} />
-                        </button>
-                        <button
-                          onClick={() => handleOpenModal(prod, 'details')}
-                          className="p-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-emerald-400 transition"
-                          title="Edit Product Details"
-                        >
-                          <Edit2 size={16} />
-                        </button>
-                        <button
-                          onClick={() => handleDeleteProduct(prod.id!)}
-                          className="p-2 rounded-lg bg-slate-800 hover:bg-rose-900/50 text-slate-400 hover:text-rose-400 transition"
-                          title="Delete Product"
-                        >
-                          <Trash2 size={16} />
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                );
-              })}
+              <Pagination
+                currentPage={prodPage}
+                totalPages={Math.ceil(filteredProducts.length / prodPageSize)}
+                totalItems={filteredProducts.length}
+                pageSize={prodPageSize}
+                onPageChange={setProdPage}
+                onPageSizeChange={setProdPageSize}
+                itemName="products"
+              />
             </div>
           )}
         </>
@@ -942,6 +1234,186 @@ function ProductsContent() {
         </>
       )}
 
+      {/* TAB: COMPANY STOCK INVENTORY & VALUATION */}
+      {activeTab === 'stock' && (
+        <div className="space-y-6">
+          {/* Header Action Bar & Company Selector */}
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-slate-900/90 p-4 rounded-2xl border border-slate-800 shadow-md">
+            <div className="flex items-center space-x-3">
+              <label className="text-xs font-bold uppercase tracking-wider text-slate-400">
+                Select Company:
+              </label>
+              <select
+                value={stockCompanyId}
+                onChange={(e) => setStockCompanyId(e.target.value)}
+                className="bg-slate-950 border border-slate-800 rounded-xl px-4 py-2 text-sm text-white font-semibold focus:outline-none focus:border-emerald-500 min-w-[240px]"
+              >
+                <option value="all">All Companies Catalog ({products.length} Products)</option>
+                {companies.map((comp) => {
+                  const compProdCount = products.filter(p => p.company_id === comp.id).length;
+                  return (
+                    <option key={comp.id} value={comp.id}>
+                      {comp.name} ({compProdCount} Products)
+                    </option>
+                  );
+                })}
+              </select>
+            </div>
+
+            {/* Print & Export Action Buttons */}
+            <div className="flex items-center space-x-2">
+              <button
+                type="button"
+                disabled={isExportingPdf || companyStockProducts.length === 0}
+                onClick={handlePrintCompanyStock}
+                className="flex items-center space-x-2 bg-emerald-600/20 text-emerald-400 hover:bg-emerald-600 hover:text-white border border-emerald-500/30 font-semibold px-3.5 py-2 rounded-xl text-xs transition disabled:opacity-50"
+                title="Print Vector PDF A4 Report"
+              >
+                <Printer size={15} />
+                <span>Print Report</span>
+              </button>
+
+              <button
+                type="button"
+                disabled={isExportingPdf || companyStockProducts.length === 0}
+                onClick={handleDownloadCompanyStockPdf}
+                className="flex items-center space-x-2 bg-slate-800 text-slate-200 hover:bg-slate-700 font-semibold px-3.5 py-2 rounded-xl text-xs transition disabled:opacity-50"
+                title="Download A4 PDF Report"
+              >
+                <Download size={15} />
+                <span>Export PDF</span>
+              </button>
+
+              <button
+                type="button"
+                disabled={companyStockProducts.length === 0}
+                onClick={handleExportCompanyStockCsv}
+                className="flex items-center space-x-2 bg-slate-800 text-slate-200 hover:bg-slate-700 font-semibold px-3.5 py-2 rounded-xl text-xs transition disabled:opacity-50"
+                title="Download Excel / CSV File"
+              >
+                <FileSpreadsheet size={15} />
+                <span>Export Excel</span>
+              </button>
+            </div>
+          </div>
+
+          {/* Metrics Summary Cards */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 space-y-1">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Listed Products</span>
+              <p className="text-2xl font-black text-white">{totalCompanyProductsCount}</p>
+              <p className="text-[11px] text-slate-400">Products for {stockCompanyLabel}</p>
+            </div>
+
+            <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 space-y-1">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Total Stock Inventory</span>
+              <p className="text-2xl font-black text-emerald-400">{totalCompanyStockUnits.toLocaleString()} units</p>
+              <p className="text-[11px] text-slate-400">Prominent physical count in stock</p>
+            </div>
+
+            <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 space-y-1">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-500">Total Purchase Valuation</span>
+              <p className="text-2xl font-black text-emerald-400">{currency} {totalCompanyStockValuation.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
+              <p className="text-[11px] text-slate-400">Sum of (Stock × Purchase Cost)</p>
+            </div>
+
+            <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 space-y-1">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Retail Sales Potential</span>
+              <p className="text-2xl font-black text-white">{currency} {totalCompanyRetailValuation.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
+              <p className="text-[11px] text-emerald-400 font-semibold">Est. Profit: {currency} {totalCompanyProfitPotential.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
+            </div>
+          </div>
+
+          {/* Company Stock Table View */}
+          {companyStockProducts.length === 0 ? (
+            <div className="bg-slate-900 rounded-2xl border border-slate-800 p-12 text-center text-slate-400">
+              No products found for company "{stockCompanyLabel}".
+            </div>
+          ) : (
+            <div className="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden shadow-xl">
+              <div className="p-4 border-b border-slate-800 bg-slate-950/60 flex items-center justify-between">
+                <div>
+                  <h3 className="font-bold text-white text-base">Company Stock Valuation Table</h3>
+                  <p className="text-xs text-slate-400">Showing all items linked to <span className="text-emerald-400 font-semibold">{stockCompanyLabel}</span></p>
+                </div>
+                <span className="text-xs bg-slate-800 text-slate-300 font-semibold px-3 py-1 rounded-lg border border-slate-700">
+                  {companyStockProducts.length} Items
+                </span>
+              </div>
+
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-xs text-slate-300">
+                  <thead className="bg-slate-950 text-slate-400 uppercase font-semibold border-b border-slate-800">
+                    <tr>
+                      <th className="py-3 px-3 text-center w-12">#</th>
+                      <th className="py-3 px-3">Product ID</th>
+                      <th className="py-3 px-3">Product Name</th>
+                      <th className="py-3 px-3">Category</th>
+                      <th className="py-3 px-3">Packaging Unit</th>
+                      <th className="py-3 px-3 text-right">Stock</th>
+                      <th className="py-3 px-3 text-right">Purchase Price</th>
+                      <th className="py-3 px-3 text-right">Retail Price</th>
+                      <th className="py-3 px-3 text-right text-emerald-400">Stock Amount (Stock × Cost)</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-800/60">
+                    {paginatedStockProducts.map((prod, idx) => {
+                      const actualIdx = (stockPage - 1) * stockPageSize + idx + 1;
+                      const isLow = prod.stock_quantity <= (prod.min_stock_warning || 10);
+                      return (
+                        <tr key={prod.id || idx} className="hover:bg-slate-800/50 transition">
+                          <td className="py-3 px-3 text-center text-slate-500 font-medium">{actualIdx}</td>
+                          <td className="py-3 px-3 font-mono font-bold text-slate-400">#{prod.id}</td>
+                          <td className="py-3 px-3 font-bold text-white">{prod.name}</td>
+                          <td className="py-3 px-3 text-slate-400">{prod.categoryName}</td>
+                          <td className="py-3 px-3 text-slate-300">{prod.unit}</td>
+                          <td className="py-3 px-3 text-right">
+                            <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-black ${
+                              isLow ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40' : 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
+                            }`}>
+                              {prod.stock_quantity.toLocaleString()} units
+                            </span>
+                          </td>
+                          <td className="py-3 px-3 text-right text-slate-300 font-semibold">{currency} {prod.purchase_price.toLocaleString()}</td>
+                          <td className="py-3 px-3 text-right text-slate-300 font-semibold">{currency} {prod.price.toLocaleString()}</td>
+                          <td className="py-3 px-3 text-right font-extrabold text-emerald-400 text-sm">
+                            {currency} {prod.totalStockValue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                  <tfoot className="bg-emerald-950/80 text-white font-extrabold border-t-2 border-emerald-600">
+                    <tr>
+                      <td colSpan={5} className="py-3.5 px-4 text-right uppercase text-xs tracking-wider text-emerald-300">
+                        TOTAL COMPANY STOCK AMOUNT ({companyStockProducts.length} PRODUCTS):
+                      </td>
+                      <td className="py-3.5 px-3 text-right text-emerald-300 font-extrabold text-sm">
+                        {totalCompanyStockUnits.toLocaleString()} units
+                      </td>
+                      <td colSpan={2} className="py-3.5 px-3 text-right text-slate-400 font-normal">-</td>
+                      <td className="py-3.5 px-4 text-right text-emerald-300 font-black text-base">
+                        {currency} {totalCompanyStockValuation.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      </td>
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
+
+              <Pagination
+                currentPage={stockPage}
+                totalPages={Math.ceil(companyStockProducts.length / stockPageSize)}
+                totalItems={companyStockProducts.length}
+                pageSize={stockPageSize}
+                onPageChange={setStockPage}
+                onPageSizeChange={setStockPageSize}
+                itemName="stock products"
+              />
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Add / Edit Product Modal */}
       {isModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm">
@@ -1028,6 +1500,19 @@ function ProductsContent() {
               ) : (
                 <>
                   {/* Standard Product Edit Form Fields */}
+                  <div>
+                    <label className="block text-xs font-semibold uppercase text-slate-400 mb-1.5">
+                      Product ID <span className="text-[10px] text-slate-500 font-normal lowercase ml-1">(System-generated read-only)</span>
+                    </label>
+                    <input
+                      type="text"
+                      readOnly
+                      disabled
+                      value={editingProduct ? `#${editingProduct.id}` : `Auto-generated on save (Preview: #${nextProductId})`}
+                      className="w-full bg-slate-900/60 border border-slate-800 text-emerald-400 font-mono font-bold rounded-xl px-4 py-2.5 text-sm cursor-not-allowed select-none opacity-90"
+                    />
+                  </div>
+
                   <div>
                     <label className="block text-xs font-semibold uppercase text-slate-400 mb-1.5">
                       Product Name <span className="text-rose-400">*</span>
@@ -1334,6 +1819,9 @@ function ProductsContent() {
             <div className="flex items-center justify-between border-b border-slate-800 pb-3">
               <div>
                 <h2 className="text-xl font-bold text-white flex items-center space-x-2">
+                  <span className="text-xs bg-slate-800 text-slate-300 border border-slate-700 font-mono font-bold px-2 py-0.5 rounded-md">
+                    ID: #{viewingProduct.id}
+                  </span>
                   <span>{viewingProduct.name}</span>
                   {viewingProduct.company_id && companyMap.get(viewingProduct.company_id) && (
                     <span className="text-xs bg-emerald-950 text-emerald-400 border border-emerald-800/60 font-semibold px-2 py-0.5 rounded-md">
@@ -1354,7 +1842,11 @@ function ProductsContent() {
             </div>
 
             {/* Product Metrics Summary */}
-            <div className="bg-slate-950 p-4 rounded-xl border border-slate-800 grid grid-cols-3 gap-4 text-center">
+            <div className="bg-slate-950 p-4 rounded-xl border border-slate-800 grid grid-cols-4 gap-3 text-center">
+              <div>
+                <p className="text-[10px] text-slate-500 uppercase font-semibold">Product ID</p>
+                <p className="text-lg font-bold text-emerald-400 font-mono">#{viewingProduct.id}</p>
+              </div>
               <div>
                 <p className="text-[10px] text-slate-500 uppercase font-semibold">Available Stock</p>
                 <p className="text-lg font-bold text-white">{viewingProduct.stock_quantity}</p>

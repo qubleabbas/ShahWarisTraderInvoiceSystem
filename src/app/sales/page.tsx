@@ -23,6 +23,8 @@ import {
   Coins
 } from 'lucide-react';
 import { db, Invoice, Category, Product, InvoiceItem, Customer, subscribeDataChanged } from '@/lib/db';
+import { fuzzyFilter } from '@/lib/fuzzySearch';
+import Pagination from '@/components/Pagination';
 import {
   ResponsiveContainer,
   ComposedChart,
@@ -73,11 +75,24 @@ export default function SalesPage() {
   // Active Tab
   const [activeTab, setActiveTab] = useState<'products' | 'customers' | 'categories'>('products');
 
-  // Table Search & Sorting State
+  // Table Search & Sorting State & Pagination
   const [productSearch, setProductSearch] = useState('');
   const [productSortKey, setProductSortKey] = useState<'qty' | 'revenue' | 'profit' | 'margin'>('revenue');
   const [customerSearch, setCustomerSearch] = useState('');
   const [customerSortKey, setCustomerSortKey] = useState<'spend' | 'qty' | 'profit' | 'orders'>('spend');
+
+  const [prodSalesPage, setProdSalesPage] = useState(1);
+  const [prodSalesPageSize, setProdSalesPageSize] = useState(25);
+  const [custSalesPage, setCustSalesPage] = useState(1);
+  const [custSalesPageSize, setCustSalesPageSize] = useState(25);
+
+  useEffect(() => {
+    setProdSalesPage(1);
+  }, [productSearch, productSortKey, dateFilter, startDate, endDate]);
+
+  useEffect(() => {
+    setCustSalesPage(1);
+  }, [customerSearch, customerSortKey, dateFilter, startDate, endDate]);
 
   const [loading, setLoading] = useState(true);
 
@@ -285,14 +300,17 @@ export default function SalesPage() {
   const productAnalyticsList = Array.from(productAnalyticsMap.values());
   const maxProductRevenue = Math.max(1, ...productAnalyticsList.map(p => p.revenue));
 
-  const filteredProductsList = productAnalyticsList
-    .filter(p => p.name.toLowerCase().includes(productSearch.toLowerCase()) || p.categoryName.toLowerCase().includes(productSearch.toLowerCase()))
-    .sort((a, b) => {
-      if (productSortKey === 'qty') return b.qty - a.qty;
-      if (productSortKey === 'profit') return b.profit - a.profit;
-      if (productSortKey === 'margin') return b.marginPct - a.marginPct;
-      return b.revenue - a.revenue;
-    });
+  const filteredProductsList = fuzzyFilter(productAnalyticsList, productSearch, p => [
+    p.id,
+    p.name,
+    p.categoryName,
+    p.unit
+  ]).sort((a, b) => {
+    if (productSortKey === 'qty') return b.qty - a.qty;
+    if (productSortKey === 'profit') return b.profit - a.profit;
+    if (productSortKey === 'margin') return b.marginPct - a.marginPct;
+    return b.revenue - a.revenue;
+  });
 
   // --- Customer Intelligence Breakdown ---
   const customerAnalyticsMap = new Map<number | string, {
@@ -328,14 +346,16 @@ export default function SalesPage() {
   const maxCustomerSpend = Math.max(1, ...customerAnalyticsList.map(c => c.totalSpend));
   const repeatCustomers = customerAnalyticsList.filter(c => c.ordersCount > 1).length;
 
-  const filteredCustomersList = customerAnalyticsList
-    .filter(c => c.name.toLowerCase().includes(customerSearch.toLowerCase()) || c.phone.includes(customerSearch))
-    .sort((a, b) => {
-      if (customerSortKey === 'qty') return b.itemsBought - a.itemsBought;
-      if (customerSortKey === 'profit') return b.totalProfit - a.totalProfit;
-      if (customerSortKey === 'orders') return b.ordersCount - a.ordersCount;
-      return b.totalSpend - a.totalSpend;
-    });
+  const filteredCustomersList = fuzzyFilter(customerAnalyticsList, customerSearch, c => [
+    c.id,
+    c.name,
+    c.phone
+  ]).sort((a, b) => {
+    if (customerSortKey === 'qty') return b.itemsBought - a.itemsBought;
+    if (customerSortKey === 'profit') return b.totalProfit - a.totalProfit;
+    if (customerSortKey === 'orders') return b.ordersCount - a.ordersCount;
+    return b.totalSpend - a.totalSpend;
+  });
 
   // --- Category Breakdown ---
   const categoryAnalyticsMap = new Map<string, { name: string; revenue: number; profit: number; qty: number }>();
@@ -729,47 +749,64 @@ export default function SalesPage() {
               {filteredProductsList.length === 0 ? (
                 <p className="py-12 text-center text-sm text-slate-500">No matching product sales in this period.</p>
               ) : (
-                <div className="overflow-x-auto">
-                  <table className="w-full text-left text-sm">
-                    <thead className="border-b border-slate-800 text-[11px] font-semibold uppercase text-slate-400">
-                      <tr>
-                        <th className="py-3 pr-2">#</th>
-                        <th className="px-2 py-3">Product</th>
-                        <th className="hidden px-2 py-3 md:table-cell">Category</th>
-                        <th className="px-2 py-3 text-center">Units</th>
-                        <th className="px-2 py-3 text-right">Revenue</th>
-                        <th className="hidden px-2 py-3 text-right lg:table-cell">Est. Cost</th>
-                        <th className="px-2 py-3 text-right text-emerald-400">Net Profit</th>
-                        <th className="px-2 py-3 text-right">Margin</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-800/60 text-xs sm:text-sm">
-                      {filteredProductsList.map((ps, idx) => (
-                        <tr key={ps.id} className="transition hover:bg-slate-800/40">
-                          <td className="py-3 pr-2">
-                            <span className={`flex h-6 w-6 items-center justify-center rounded-lg text-[11px] font-black ${
-                              idx < 3 ? rankColors[idx] : 'bg-slate-800 text-slate-400'}`}>{idx + 1}</span>
-                          </td>
-                          <td className="px-2 py-3">
-                            <div className="font-bold text-white">{ps.name}</div>
-                            <div className="mt-1 h-1 w-24 overflow-hidden rounded-full bg-slate-800">
-                              <div className="h-full rounded-full bg-emerald-500" style={{ width: `${(ps.revenue / maxProductRevenue) * 100}%` }} />
-                            </div>
-                          </td>
-                          <td className="hidden px-2 py-3 text-slate-400 md:table-cell">{ps.categoryName}</td>
-                          <td className="px-2 py-3 text-center font-extrabold text-white">{ps.qty}</td>
-                          <td className="px-2 py-3 text-right font-bold text-white">{money(ps.revenue)}</td>
-                          <td className="hidden px-2 py-3 text-right text-slate-400 lg:table-cell">{money(ps.cost)}</td>
-                          <td className="px-2 py-3 text-right font-black text-emerald-400">{money(ps.profit)}</td>
-                          <td className="px-2 py-3 text-right">
-                            <span className="inline-block rounded border border-emerald-500/20 bg-emerald-500/10 px-2 py-0.5 text-xs font-extrabold text-emerald-400">
-                              {ps.marginPct.toFixed(1)}%
-                            </span>
-                          </td>
+                <div className="space-y-4">
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left text-sm">
+                      <thead className="border-b border-slate-800 text-[11px] font-semibold uppercase text-slate-400">
+                        <tr>
+                          <th className="py-3 pr-2">#</th>
+                          <th className="px-2 py-3">Product</th>
+                          <th className="hidden px-2 py-3 md:table-cell">Category</th>
+                          <th className="px-2 py-3 text-center">Units</th>
+                          <th className="px-2 py-3 text-right">Revenue</th>
+                          <th className="hidden px-2 py-3 text-right lg:table-cell">Est. Cost</th>
+                          <th className="px-2 py-3 text-right text-emerald-400">Net Profit</th>
+                          <th className="px-2 py-3 text-right">Margin</th>
                         </tr>
-                      ))}
-                    </tbody>
-                  </table>
+                      </thead>
+                      <tbody className="divide-y divide-slate-800/60 text-xs sm:text-sm">
+                        {filteredProductsList
+                          .slice((prodSalesPage - 1) * prodSalesPageSize, prodSalesPage * prodSalesPageSize)
+                          .map((ps, idx) => {
+                            const actualRank = (prodSalesPage - 1) * prodSalesPageSize + idx;
+                            return (
+                              <tr key={ps.id} className="transition hover:bg-slate-800/40">
+                                <td className="py-3 pr-2">
+                                  <span className={`flex h-6 w-6 items-center justify-center rounded-lg text-[11px] font-black ${
+                                    actualRank < 3 ? rankColors[actualRank] : 'bg-slate-800 text-slate-400'}`}>{actualRank + 1}</span>
+                                </td>
+                                <td className="px-2 py-3">
+                                  <div className="font-bold text-white">{ps.name}</div>
+                                  <div className="mt-1 h-1 w-24 overflow-hidden rounded-full bg-slate-800">
+                                    <div className="h-full rounded-full bg-emerald-500" style={{ width: `${(ps.revenue / maxProductRevenue) * 100}%` }} />
+                                  </div>
+                                </td>
+                                <td className="hidden px-2 py-3 text-slate-400 md:table-cell">{ps.categoryName}</td>
+                                <td className="px-2 py-3 text-center font-extrabold text-white">{ps.qty}</td>
+                                <td className="px-2 py-3 text-right font-bold text-white">{money(ps.revenue)}</td>
+                                <td className="hidden px-2 py-3 text-right text-slate-400 lg:table-cell">{money(ps.cost)}</td>
+                                <td className="px-2 py-3 text-right font-black text-emerald-400">{money(ps.profit)}</td>
+                                <td className="px-2 py-3 text-right">
+                                  <span className="inline-block rounded border border-emerald-500/20 bg-emerald-500/10 px-2 py-0.5 text-xs font-extrabold text-emerald-400">
+                                    {ps.marginPct.toFixed(1)}%
+                                  </span>
+                                </td>
+                              </tr>
+                            );
+                          })}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  <Pagination
+                    currentPage={prodSalesPage}
+                    totalPages={Math.ceil(filteredProductsList.length / prodSalesPageSize)}
+                    totalItems={filteredProductsList.length}
+                    pageSize={prodSalesPageSize}
+                    onPageChange={setProdSalesPage}
+                    onPageSizeChange={setProdSalesPageSize}
+                    itemName="products"
+                  />
                 </div>
               )}
             </div>
@@ -831,43 +868,60 @@ export default function SalesPage() {
               {filteredCustomersList.length === 0 ? (
                 <p className="py-12 text-center text-sm text-slate-500">No customer purchases in this period.</p>
               ) : (
-                <div className="overflow-x-auto">
-                  <table className="w-full text-left text-sm">
-                    <thead className="border-b border-slate-800 text-[11px] font-semibold uppercase text-slate-400">
-                      <tr>
-                        <th className="py-3 pr-2">#</th>
-                        <th className="px-2 py-3">Customer</th>
-                        <th className="hidden px-2 py-3 md:table-cell">Phone</th>
-                        <th className="px-2 py-3 text-center">Orders</th>
-                        <th className="px-2 py-3 text-center text-emerald-400">Units</th>
-                        <th className="px-2 py-3 text-right">Total Spend</th>
-                        <th className="px-2 py-3 text-right text-emerald-400">Profit</th>
-                        <th className="hidden px-2 py-3 text-right lg:table-cell">Last Order</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-800/60 text-xs sm:text-sm">
-                      {filteredCustomersList.map((c, idx) => (
-                        <tr key={c.id} className="transition hover:bg-slate-800/40">
-                          <td className="py-3 pr-2">
-                            <span className={`flex h-6 w-6 items-center justify-center rounded-lg text-[11px] font-black ${
-                              idx < 3 ? rankColors[idx] : 'bg-slate-800 text-slate-400'}`}>{idx + 1}</span>
-                          </td>
-                          <td className="px-2 py-3">
-                            <div className="font-bold text-white">{c.name}</div>
-                            <div className="mt-1 h-1 w-24 overflow-hidden rounded-full bg-slate-800">
-                              <div className="h-full rounded-full bg-blue-500" style={{ width: `${(c.totalSpend / maxCustomerSpend) * 100}%` }} />
-                            </div>
-                          </td>
-                          <td className="hidden px-2 py-3 text-slate-400 md:table-cell">{c.phone}</td>
-                          <td className="px-2 py-3 text-center font-bold text-white">{c.ordersCount}</td>
-                          <td className="px-2 py-3 text-center font-black text-emerald-400">{c.itemsBought}</td>
-                          <td className="px-2 py-3 text-right font-bold text-white">{money(c.totalSpend)}</td>
-                          <td className="px-2 py-3 text-right font-black text-emerald-400">{money(c.totalProfit)}</td>
-                          <td className="hidden px-2 py-3 text-right text-slate-400 lg:table-cell">{new Date(c.lastOrderDate).toLocaleDateString()}</td>
+                <div className="space-y-4">
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left text-sm">
+                      <thead className="border-b border-slate-800 text-[11px] font-semibold uppercase text-slate-400">
+                        <tr>
+                          <th className="py-3 pr-2">#</th>
+                          <th className="px-2 py-3">Customer</th>
+                          <th className="hidden px-2 py-3 md:table-cell">Phone</th>
+                          <th className="px-2 py-3 text-center">Orders</th>
+                          <th className="px-2 py-3 text-center text-emerald-400">Units</th>
+                          <th className="px-2 py-3 text-right">Total Spend</th>
+                          <th className="px-2 py-3 text-right text-emerald-400">Profit</th>
+                          <th className="hidden px-2 py-3 text-right lg:table-cell">Last Order</th>
                         </tr>
-                      ))}
-                    </tbody>
-                  </table>
+                      </thead>
+                      <tbody className="divide-y divide-slate-800/60 text-xs sm:text-sm">
+                        {filteredCustomersList
+                          .slice((custSalesPage - 1) * custSalesPageSize, custSalesPage * custSalesPageSize)
+                          .map((c, idx) => {
+                            const actualRank = (custSalesPage - 1) * custSalesPageSize + idx;
+                            return (
+                              <tr key={c.id} className="transition hover:bg-slate-800/40">
+                                <td className="py-3 pr-2">
+                                  <span className={`flex h-6 w-6 items-center justify-center rounded-lg text-[11px] font-black ${
+                                    actualRank < 3 ? rankColors[actualRank] : 'bg-slate-800 text-slate-400'}`}>{actualRank + 1}</span>
+                                </td>
+                                <td className="px-2 py-3">
+                                  <div className="font-bold text-white">{c.name}</div>
+                                  <div className="mt-1 h-1 w-24 overflow-hidden rounded-full bg-slate-800">
+                                    <div className="h-full rounded-full bg-blue-500" style={{ width: `${(c.totalSpend / maxCustomerSpend) * 100}%` }} />
+                                  </div>
+                                </td>
+                                <td className="hidden px-2 py-3 text-slate-400 md:table-cell">{c.phone}</td>
+                                <td className="px-2 py-3 text-center font-bold text-white">{c.ordersCount}</td>
+                                <td className="px-2 py-3 text-center font-black text-emerald-400">{c.itemsBought}</td>
+                                <td className="px-2 py-3 text-right font-bold text-white">{money(c.totalSpend)}</td>
+                                <td className="px-2 py-3 text-right font-black text-emerald-400">{money(c.totalProfit)}</td>
+                                <td className="hidden px-2 py-3 text-right text-slate-400 lg:table-cell">{new Date(c.lastOrderDate).toLocaleDateString()}</td>
+                              </tr>
+                            );
+                          })}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  <Pagination
+                    currentPage={custSalesPage}
+                    totalPages={Math.ceil(filteredCustomersList.length / custSalesPageSize)}
+                    totalItems={filteredCustomersList.length}
+                    pageSize={custSalesPageSize}
+                    onPageChange={setCustSalesPage}
+                    onPageSizeChange={setCustSalesPageSize}
+                    itemName="customers"
+                  />
                 </div>
               )}
             </div>

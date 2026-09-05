@@ -8,6 +8,8 @@ import { db, Customer, City, Invoice, recordTombstone, subscribeDataChanged } fr
 import { statusBadgeClasses, displayStatus, formatDateTime } from '@/lib/ledger';
 import { useToast } from '@/components/ToastProvider';
 import SearchableCitySelect from '@/components/SearchableCitySelect';
+import { fuzzyFilter } from '@/lib/fuzzySearch';
+import Pagination from '@/components/Pagination';
 
 function CustomersContent() {
   const { showToast } = useToast();
@@ -251,16 +253,31 @@ function CustomersContent() {
     }
   }
 
-  const filteredCustomers = customers.filter(c =>
-    c.name.toLowerCase().includes(search.toLowerCase()) ||
-    c.phone.includes(search) ||
-    c.address.toLowerCase().includes(search.toLowerCase()) ||
-    (c.city_id && cityMap.get(c.city_id)?.toLowerCase().includes(search.toLowerCase()))
-  );
+  // Pagination states
+  const [custPage, setCustPage] = useState(1);
+  const [custPageSize, setCustPageSize] = useState(25);
+  const [cityPage, setCityPage] = useState(1);
+  const [cityPageSize, setCityPageSize] = useState(25);
 
-  const filteredCities = cities.filter(c =>
-    c.name.toLowerCase().includes(search.toLowerCase())
-  );
+  useEffect(() => {
+    setCustPage(1);
+    setCityPage(1);
+  }, [search]);
+
+  const filteredCustomers = fuzzyFilter(customers, search, c => [
+    c.id,
+    c.name,
+    c.phone,
+    c.address,
+    c.city_id ? cityMap.get(c.city_id) : undefined,
+    c.ntn_number,
+    c.stn_number
+  ]);
+
+  const filteredCities = fuzzyFilter(cities, search, c => [c.id, c.name]);
+
+  const paginatedCustomers = filteredCustomers.slice((custPage - 1) * custPageSize, custPage * custPageSize);
+  const paginatedCities = filteredCities.slice((cityPage - 1) * cityPageSize, cityPage * cityPageSize);
 
   return (
     <div className="space-y-6">
@@ -363,116 +380,128 @@ function CustomersContent() {
               No customers found.
             </div>
           ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-              {filteredCustomers.map((cust) => {
-                const custInvs = invoices.filter(inv => inv.customer_id === cust.id);
-                const totalSpent = custInvs.reduce((acc, curr) => acc + curr.total_amount, 0);
-                const cityName = cust.city_id ? cityMap.get(cust.city_id) : undefined;
+            <div className="space-y-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+                {paginatedCustomers.map((cust) => {
+                  const custInvs = invoices.filter(inv => inv.customer_id === cust.id);
+                  const totalSpent = custInvs.reduce((acc, curr) => acc + curr.total_amount, 0);
+                  const cityName = cust.city_id ? cityMap.get(cust.city_id) : undefined;
 
-                return (
-                  <div
-                    key={cust.id}
-                    className="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-card hover:border-slate-700 transition flex flex-col justify-between space-y-4"
-                  >
-                    <div className="space-y-2">
-                      <div className="flex items-start justify-between">
-                        <div>
-                          <h3 className="font-bold text-lg text-white">{cust.name}</h3>
-                          {cityName && (
-                            <span className="inline-flex items-center space-x-1 text-[11px] text-emerald-400 font-semibold bg-emerald-950/60 px-2 py-0.5 rounded-md border border-emerald-800/40 mt-1">
-                              <Building2 size={12} />
-                              <span>{cityName}</span>
-                            </span>
+                  return (
+                    <div
+                      key={cust.id}
+                      className="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-card hover:border-slate-700 transition flex flex-col justify-between space-y-4"
+                    >
+                      <div className="space-y-2">
+                        <div className="flex items-start justify-between">
+                          <div>
+                            <h3 className="font-bold text-lg text-white">{cust.name}</h3>
+                            {cityName && (
+                              <span className="inline-flex items-center space-x-1 text-[11px] text-emerald-400 font-semibold bg-emerald-950/60 px-2 py-0.5 rounded-md border border-emerald-800/40 mt-1">
+                                <Building2 size={12} />
+                                <span>{cityName}</span>
+                              </span>
+                            )}
+                          </div>
+                          <span className="text-xs bg-emerald-500/10 text-emerald-400 px-2 py-0.5 rounded-full font-semibold">
+                            {custInvs.length} Invoices
+                          </span>
+                        </div>
+
+                        <div className="space-y-1 text-xs text-slate-400 pt-1">
+                          <p className="flex items-center space-x-2">
+                            <Phone size={14} className="text-emerald-400 flex-shrink-0" />
+                            <span>{cust.phone || 'No phone provided'}</span>
+                          </p>
+                          <p className="flex items-center space-x-2">
+                            <MapPin size={14} className="text-emerald-400 flex-shrink-0" />
+                            <span>{cust.address || 'No address provided'}</span>
+                          </p>
+                          {(cust.ntn_number || cust.stn_number) && (
+                            <p className="flex items-center space-x-2 text-slate-300">
+                              <Tag size={14} className="text-emerald-400 flex-shrink-0" />
+                              <span>
+                                {[
+                                  cust.ntn_number ? `NTN: ${cust.ntn_number}` : '',
+                                  cust.stn_number ? `STN: ${cust.stn_number}` : ''
+                                ].filter(Boolean).join(' | ')}
+                              </span>
+                            </p>
+                          )}
+                          {cust.discount_percentage !== undefined && cust.discount_percentage !== null && (
+                            <p className="flex items-center space-x-2 text-slate-300">
+                              <Percent size={14} className="text-emerald-400 flex-shrink-0" />
+                              <span>Default Discount: {cust.discount_percentage}%</span>
+                            </p>
                           )}
                         </div>
-                        <span className="text-xs bg-emerald-500/10 text-emerald-400 px-2 py-0.5 rounded-full font-semibold">
-                          {custInvs.length} Invoices
-                        </span>
                       </div>
 
-                      <div className="space-y-1 text-xs text-slate-400 pt-1">
-                        <p className="flex items-center space-x-2">
-                          <Phone size={14} className="text-emerald-400 flex-shrink-0" />
-                          <span>{cust.phone || 'No phone provided'}</span>
-                        </p>
-                        <p className="flex items-center space-x-2">
-                          <MapPin size={14} className="text-emerald-400 flex-shrink-0" />
-                          <span>{cust.address || 'No address provided'}</span>
-                        </p>
-                        {(cust.ntn_number || cust.stn_number) && (
-                          <p className="flex items-center space-x-2 text-slate-300">
-                            <Tag size={14} className="text-emerald-400 flex-shrink-0" />
-                            <span>
-                              {[
-                                cust.ntn_number ? `NTN: ${cust.ntn_number}` : '',
-                                cust.stn_number ? `STN: ${cust.stn_number}` : ''
-                              ].filter(Boolean).join(' | ')}
-                            </span>
-                          </p>
-                        )}
-                        {cust.discount_percentage !== undefined && cust.discount_percentage !== null && (
-                          <p className="flex items-center space-x-2 text-slate-300">
-                            <Percent size={14} className="text-emerald-400 flex-shrink-0" />
-                            <span>Default Discount: {cust.discount_percentage}%</span>
-                          </p>
-                        )}
+                      <div className="pt-3 border-t border-slate-800 space-y-3">
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <p className="text-[10px] uppercase font-semibold text-slate-500">Total Spent</p>
+                            <p className="text-sm font-extrabold text-emerald-400">
+                              {currency} {totalSpent.toLocaleString()}
+                            </p>
+                          </div>
+                          <div className="text-right">
+                            <p className="text-[10px] uppercase font-semibold text-slate-500">Outstanding</p>
+                            <p className={`text-sm font-extrabold ${(cust.outstanding || 0) > 0 ? 'text-amber-400' : 'text-slate-500'}`}>
+                              {currency} {(cust.outstanding || 0).toLocaleString()}
+                            </p>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-1.5">
+                          <Link
+                            href={`/customers/${cust.id}/ledger`}
+                            className="flex flex-1 items-center justify-center gap-1.5 rounded-lg bg-emerald-600/20 px-3 py-2 text-xs font-semibold text-emerald-400 transition hover:bg-emerald-600 hover:text-white"
+                            title="Open Customer Ledger"
+                          >
+                            <Wallet size={15} />
+                            <span>Ledger</span>
+                          </Link>
+                          <button
+                            onClick={() => {
+                              setViewingCustomer(cust);
+                              setIsDetailOpen(true);
+                            }}
+                            className="p-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 transition"
+                            title="View Customer Details & History"
+                          >
+                            <Eye size={16} />
+                          </button>
+                          <button
+                            onClick={() => handleOpenCustomerModal(cust)}
+                            className="p-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-emerald-400 transition"
+                            title="Edit Customer"
+                          >
+                            <Edit2 size={16} />
+                          </button>
+                          <button
+                            onClick={() => handleDeleteCustomer(cust.id!)}
+                            className="p-2 rounded-lg bg-slate-800 hover:bg-rose-900/50 text-slate-400 hover:text-rose-400 transition"
+                            title="Delete Customer"
+                          >
+                            <Trash2 size={16} />
+                          </button>
+                        </div>
                       </div>
                     </div>
+                  );
+                })}
+              </div>
 
-                    <div className="pt-3 border-t border-slate-800 space-y-3">
-                      <div className="flex items-center justify-between">
-                        <div>
-                          <p className="text-[10px] uppercase font-semibold text-slate-500">Total Spent</p>
-                          <p className="text-sm font-extrabold text-emerald-400">
-                            {currency} {totalSpent.toLocaleString()}
-                          </p>
-                        </div>
-                        <div className="text-right">
-                          <p className="text-[10px] uppercase font-semibold text-slate-500">Outstanding</p>
-                          <p className={`text-sm font-extrabold ${(cust.outstanding || 0) > 0 ? 'text-amber-400' : 'text-slate-500'}`}>
-                            {currency} {(cust.outstanding || 0).toLocaleString()}
-                          </p>
-                        </div>
-                      </div>
-
-                      <div className="flex items-center gap-1.5">
-                        <Link
-                          href={`/customers/${cust.id}/ledger`}
-                          className="flex flex-1 items-center justify-center gap-1.5 rounded-lg bg-emerald-600/20 px-3 py-2 text-xs font-semibold text-emerald-400 transition hover:bg-emerald-600 hover:text-white"
-                          title="Open Customer Ledger"
-                        >
-                          <Wallet size={15} />
-                          <span>Ledger</span>
-                        </Link>
-                        <button
-                          onClick={() => {
-                            setViewingCustomer(cust);
-                            setIsDetailOpen(true);
-                          }}
-                          className="p-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 transition"
-                          title="View Customer Details & History"
-                        >
-                          <Eye size={16} />
-                        </button>
-                        <button
-                          onClick={() => handleOpenCustomerModal(cust)}
-                          className="p-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-emerald-400 transition"
-                          title="Edit Customer"
-                        >
-                          <Edit2 size={16} />
-                        </button>
-                        <button
-                          onClick={() => handleDeleteCustomer(cust.id!)}
-                          className="p-2 rounded-lg bg-slate-800 hover:bg-rose-900/50 text-slate-400 hover:text-rose-400 transition"
-                          title="Delete Customer"
-                        >
-                          <Trash2 size={16} />
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                );
-              })}
+              <Pagination
+                currentPage={custPage}
+                totalPages={Math.ceil(filteredCustomers.length / custPageSize)}
+                totalItems={filteredCustomers.length}
+                pageSize={custPageSize}
+                onPageChange={setCustPage}
+                onPageSizeChange={setCustPageSize}
+                itemName="customers"
+              />
             </div>
           )}
         </>
@@ -488,41 +517,53 @@ function CustomersContent() {
               No cities found.
             </div>
           ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-              {filteredCities.map((c) => {
-                const custCount = customers.filter(cust => cust.city_id === c.id).length;
+            <div className="space-y-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+                {paginatedCities.map((c) => {
+                  const custCount = customers.filter(cust => cust.city_id === c.id).length;
 
-                return (
-                  <div
-                    key={c.id}
-                    className="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-card hover:border-slate-700 transition flex items-center justify-between"
-                  >
-                    <div className="space-y-1">
-                      <h3 className="font-bold text-lg text-white">{c.name}</h3>
-                      <div className="flex items-center space-x-1.5 text-xs text-emerald-400 font-medium">
-                        <Users size={14} />
-                        <span>{custCount} Customers Linked</span>
+                  return (
+                    <div
+                      key={c.id}
+                      className="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-card hover:border-slate-700 transition flex items-center justify-between"
+                    >
+                      <div className="space-y-1">
+                        <h3 className="font-bold text-lg text-white">{c.name}</h3>
+                        <div className="flex items-center space-x-1.5 text-xs text-emerald-400 font-medium">
+                          <Users size={14} />
+                          <span>{custCount} Customers</span>
+                        </div>
+                      </div>
+                      <div className="flex items-center space-x-2">
+                        <button
+                          onClick={() => handleOpenCityModal(c)}
+                          className="p-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white transition"
+                          title="Edit City"
+                        >
+                          <Edit2 size={16} />
+                        </button>
+                        <button
+                          onClick={() => handleDeleteCity(c.id!)}
+                          className="p-2 rounded-lg bg-slate-800 hover:bg-rose-900/50 text-slate-400 hover:text-rose-400 transition"
+                          title="Delete City"
+                        >
+                          <Trash2 size={16} />
+                        </button>
                       </div>
                     </div>
-                    <div className="flex items-center space-x-2">
-                      <button
-                        onClick={() => handleOpenCityModal(c)}
-                        className="p-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white transition"
-                        title="Edit City"
-                      >
-                        <Edit2 size={16} />
-                      </button>
-                      <button
-                        onClick={() => handleDeleteCity(c.id!)}
-                        className="p-2 rounded-lg bg-slate-800 hover:bg-rose-900/50 text-slate-400 hover:text-rose-400 transition"
-                        title="Delete City"
-                      >
-                        <Trash2 size={16} />
-                      </button>
-                    </div>
-                  </div>
-                );
-              })}
+                  );
+                })}
+              </div>
+
+              <Pagination
+                currentPage={cityPage}
+                totalPages={Math.ceil(filteredCities.length / cityPageSize)}
+                totalItems={filteredCities.length}
+                pageSize={cityPageSize}
+                onPageChange={setCityPage}
+                onPageSizeChange={setCityPageSize}
+                itemName="cities"
+              />
             </div>
           )}
         </>
