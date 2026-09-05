@@ -525,7 +525,7 @@ export default function CustomerLedgerPage() {
             <div className="space-y-4">
               <div className="space-y-2.5">
                 {filteredPayments
-                  .slice((histPage - 1) * histPageSize, histPage * histPageSize)
+                  .slice(0, histPage * histPageSize)
                   .map((p) => {
                     const dt = formatDateTime(p.payment_date);
                     return (

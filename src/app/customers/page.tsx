@@ -276,8 +276,8 @@ function CustomersContent() {
 
   const filteredCities = fuzzyFilter(cities, search, c => [c.id, c.name]);
 
-  const paginatedCustomers = filteredCustomers.slice((custPage - 1) * custPageSize, custPage * custPageSize);
-  const paginatedCities = filteredCities.slice((cityPage - 1) * cityPageSize, cityPage * cityPageSize);
+  const paginatedCustomers = filteredCustomers.slice(0, custPage * custPageSize);
+  const paginatedCities = filteredCities.slice(0, cityPage * cityPageSize);
 
   return (
     <div className="space-y-6">

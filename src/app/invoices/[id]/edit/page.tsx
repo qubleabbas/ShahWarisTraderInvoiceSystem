@@ -614,6 +614,7 @@ export default function EditInvoicePage() {
             </div>
             <SearchableCustomerSelect
               customers={customers}
+              cities={cities}
               selectedCustomerId={customerId}
               onSelectCustomer={handleSelectCustomer}
               onAddQuickCustomer={() => setIsCustomerModalOpen(true)}
@@ -706,6 +707,7 @@ export default function EditInvoicePage() {
                       onSelectProduct={(id) => handleProductChange(idx, id)}
                       currency={currency}
                       effectiveStockMap={effectiveStockMap}
+                      rowIndex={idx}
                     />
                   </div>
 
@@ -891,117 +893,78 @@ export default function EditInvoicePage() {
           </div>
         </div>
 
-        {/* Calculation Summary & T&Cs Card */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          {/* Terms & Stamp/Signature Uploaders */}
-          <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-card space-y-4">
+        {/* Full-Width Bill Calculations & Summary Card */}
+        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 sm:p-8 shadow-card space-y-6">
+          {/* Header Row */}
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between border-b border-slate-800 pb-4 gap-4">
             <div>
-              <label className="block text-xs font-bold uppercase tracking-wider text-slate-400 mb-1.5">
-                Editable Warranty Form
-              </label>
-              <textarea
-                rows={3}
-                value={terms}
-                onChange={(e) => setTerms(e.target.value)}
-                className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-xs text-white placeholder-slate-600 focus:outline-none focus:border-emerald-500"
-              />
+              <h3 className="text-lg font-bold text-white flex items-center space-x-2">
+                <span>Bill Calculations & Summary</span>
+              </h3>
+              <p className="text-xs text-slate-400 mt-0.5">
+                Review final itemized totals, bill discounts, taxes, and pending customer balances. Warranty terms are automatically applied from <Link href="/settings" className="text-emerald-400 underline font-semibold">Settings</Link>.
+              </p>
             </div>
 
-            {/* Signature & Stamp Selectors with Persistence */}
-            <div className="grid grid-cols-2 gap-4 pt-2 border-t border-slate-800">
-              {/* Signature Options */}
-              <div className="space-y-2">
-                <div className="flex items-center justify-between">
-                  <label className="text-[11px] font-bold uppercase text-slate-300 flex items-center space-x-1.5">
-                    <input
-                      type="checkbox"
-                      checked={includeSignature}
-                      onChange={(e) => {
-                        const val = e.target.checked;
-                        setIncludeSignature(val);
-                        persistSignatureStampPreferences(val, includeStamp, signatureUrl, stampUrl);
-                      }}
-                      className="rounded border-slate-700 bg-slate-950 text-emerald-500 focus:ring-emerald-500"
-                    />
-                    <span>Include Signature</span>
-                  </label>
-                </div>
-
-                {includeSignature && (
-                  <label className="flex flex-col items-center justify-center p-3 border-2 border-dashed border-slate-800 rounded-xl cursor-pointer hover:border-emerald-500 bg-slate-950 transition">
-                    <Upload size={18} className="text-slate-400 mb-1" />
-                    <span className="text-[10px] text-slate-400">{signatureUrl ? 'Signature Loaded (Saved)' : 'Choose file'}</span>
-                    <input
-                      type="file"
-                      accept="image/*"
-                      onChange={(e) => handleImageUpload(e, setSignatureUrl, true)}
-                      className="hidden"
-                    />
-                  </label>
-                )}
-              </div>
-
-              {/* Stamp Options */}
-              <div className="space-y-2">
-                <div className="flex items-center justify-between">
-                  <label className="text-[11px] font-bold uppercase text-slate-300 flex items-center space-x-1.5">
-                    <input
-                      type="checkbox"
-                      checked={includeStamp}
-                      onChange={(e) => {
-                        const val = e.target.checked;
-                        setIncludeStamp(val);
-                        persistSignatureStampPreferences(includeSignature, val, signatureUrl, stampUrl);
-                      }}
-                      className="rounded border-slate-700 bg-slate-950 text-emerald-500 focus:ring-emerald-500"
-                    />
-                    <span>Include Stamp</span>
-                  </label>
-                </div>
-
-                {includeStamp && (
-                  <label className="flex flex-col items-center justify-center p-3 border-2 border-dashed border-slate-800 rounded-xl cursor-pointer hover:border-emerald-500 bg-slate-950 transition">
-                    <Upload size={18} className="text-slate-400 mb-1" />
-                    <span className="text-[10px] text-slate-400">{stampUrl ? 'Stamp Loaded (Saved)' : 'Choose file'}</span>
-                    <input
-                      type="file"
-                      accept="image/*"
-                      onChange={(e) => handleImageUpload(e, setStampUrl, false)}
-                      className="hidden"
-                    />
-                  </label>
-                )}
-              </div>
+            {/* Signature & Company Seal Toggles */}
+            <div className="flex items-center space-x-4 bg-slate-950 px-4 py-2.5 rounded-xl border border-slate-800">
+              <label className="flex items-center space-x-2 cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={includeSignature}
+                  onChange={(e) => {
+                    const val = e.target.checked;
+                    setIncludeSignature(val);
+                    persistSignatureStampPreferences(val, includeStamp, signatureUrl, stampUrl);
+                  }}
+                  className="rounded border-slate-700 bg-slate-900 text-emerald-500 focus:ring-emerald-500"
+                />
+                <span className="text-xs font-bold text-slate-300">Include Signature</span>
+              </label>
+              <div className="h-4 w-px bg-slate-800" />
+              <label className="flex items-center space-x-2 cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={includeStamp}
+                  onChange={(e) => {
+                    const val = e.target.checked;
+                    setIncludeStamp(val);
+                    persistSignatureStampPreferences(includeSignature, val, signatureUrl, stampUrl);
+                  }}
+                  className="rounded border-slate-700 bg-slate-900 text-emerald-500 focus:ring-emerald-500"
+                />
+                <span className="text-xs font-bold text-slate-300">Include Company Seal</span>
+              </label>
             </div>
           </div>
 
-          {/* Grand Calculations */}
-          <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-card space-y-4">
-            <h3 className="text-base font-bold text-white border-b border-slate-800 pb-2">
-              Bill Calculations
-            </h3>
-
-            <div className="space-y-3 text-sm">
-              <div className="flex justify-between text-slate-300">
-                <span>Gross Amount (Subtotal):</span>
-                <span className="font-bold">{currency} {grossSubtotal.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })}</span>
+          {/* Main 2-Column Full Width Breakdown */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+            {/* Left Column: Subtotal, Line Discounts, Overall Discount, Taxes */}
+            <div className="space-y-4">
+              <div className="flex justify-between items-center text-sm text-slate-300 pb-2 border-b border-slate-800/80">
+                <span className="font-medium">Gross Amount (Subtotal):</span>
+                <span className="font-bold text-white text-base">
+                  {currency} {grossSubtotal.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })}
+                </span>
               </div>
 
               {totalItemDiscounts > 0 && (
-                <div className="flex justify-between text-rose-400 text-xs">
-                  <span>Line Items Discount:</span>
+                <div className="flex justify-between items-center text-xs text-rose-400 pb-2 border-b border-slate-800/60 font-semibold">
+                  <span>Line Items Discount Total:</span>
                   <span>-{currency} {totalItemDiscounts.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })}</span>
                 </div>
               )}
 
-              <div className="flex items-center justify-between">
+              {/* Overall Bill Discount */}
+              <div className="flex items-center justify-between py-2 border-b border-slate-800/80">
                 <div className="flex items-center space-x-2">
                   <span className="text-xs uppercase font-bold text-slate-400">Overall Bill Discount:</span>
                   <div className="flex bg-slate-950 rounded-md p-0.5 border border-slate-800">
                     <button
                       type="button"
                       onClick={() => setOverallDiscountType('percent')}
-                      className={`px-1.5 py-0.5 text-[9px] font-bold rounded ${
+                      className={`px-2 py-0.5 text-[10px] font-bold rounded ${
                         overallDiscountType === 'percent'
                           ? 'bg-emerald-600 text-white'
                           : 'text-slate-400 hover:text-white'
@@ -1012,7 +975,7 @@ export default function EditInvoicePage() {
                     <button
                       type="button"
                       onClick={() => setOverallDiscountType('fixed')}
-                      className={`px-1.5 py-0.5 text-[9px] font-bold rounded ${
+                      className={`px-2 py-0.5 text-[10px] font-bold rounded ${
                         overallDiscountType === 'fixed'
                           ? 'bg-emerald-600 text-white'
                           : 'text-slate-400 hover:text-white'
@@ -1033,19 +996,23 @@ export default function EditInvoicePage() {
                       setOverallDiscount(val);
                     }
                   }}
-                  className="w-28 bg-slate-950 border border-slate-800 rounded-lg px-3 py-1.5 text-right font-bold text-rose-400 focus:outline-none focus:border-emerald-500 text-xs"
+                  className="w-32 bg-slate-950 border border-slate-800 rounded-xl px-3 py-1.5 text-right font-bold text-rose-400 focus:outline-none focus:border-emerald-500 text-xs"
                 />
               </div>
 
+              {/* Tax Manager */}
               <TaxManager
                 value={taxes}
                 onChange={setTaxes}
                 baseAmount={subtotalAfterDiscount}
                 currency={currency}
               />
+            </div>
 
-              {/* Include Customer Pending Amount Box */}
-              <div className="bg-slate-950/80 border border-slate-800 rounded-xl p-3.5 space-y-2 my-2">
+            {/* Right Column: Customer Pending Ledger Balance & Grand Total Box */}
+            <div className="space-y-4 flex flex-col justify-between">
+              {/* Customer Pending Ledger Balance */}
+              <div className="bg-slate-950/80 border border-slate-800 rounded-xl p-4 space-y-3">
                 <div className="flex items-center justify-between">
                   <label htmlFor="includePendingBalanceCheckboxEdit" className={`flex items-center space-x-2.5 ${customerPendingBalance > 0 ? 'cursor-pointer' : 'cursor-not-allowed opacity-60'}`}>
                     <input
@@ -1057,7 +1024,7 @@ export default function EditInvoicePage() {
                       className="w-4 h-4 rounded border-slate-700 bg-slate-900 text-emerald-500 focus:ring-emerald-500 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
                     />
                     <span className={`text-xs font-bold uppercase tracking-wider ${customerPendingBalance > 0 ? 'text-slate-200' : 'text-slate-500'}`}>
-                      Include Pending Amount
+                      Include Previous Pending Balance
                     </span>
                   </label>
                   <span className={`text-xs font-extrabold ${customerPendingBalance > 0 ? 'text-amber-400' : 'text-slate-500'}`}>
@@ -1066,31 +1033,42 @@ export default function EditInvoicePage() {
                 </div>
 
                 {includePendingBalance && customerPendingBalance > 0 ? (
-                  <div className="flex justify-between text-xs text-amber-400 font-bold pt-1 border-t border-slate-800/60">
-                    <span>Pending Amount</span>
+                  <div className="flex justify-between text-xs text-amber-400 font-bold pt-2 border-t border-slate-800/80">
+                    <span>Previous Ledger Balance Added:</span>
                     <span>+{currency} {customerPendingBalance.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })}</span>
                   </div>
                 ) : customerPendingBalance <= 0 ? (
-                  <p className="text-[11px] text-slate-500 italic">No previous pending balance for this customer.</p>
+                  <p className="text-[11px] text-slate-500 italic">No previous pending ledger balance for this customer.</p>
                 ) : null}
               </div>
 
-              <div className="pt-3 border-t border-slate-800 flex justify-between items-center text-lg font-black">
-                <span className="text-white">Final Grand Total:</span>
-                <span className="text-emerald-400">{currency} {grandTotal.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })}</span>
+              {/* Prominent Grand Total Box */}
+              <div className="bg-emerald-950/30 border border-emerald-500/40 rounded-2xl p-5 flex items-center justify-between shadow-lg shadow-emerald-950/40">
+                <div>
+                  <span className="text-xs uppercase font-bold text-slate-400 block tracking-wider">
+                    Final Grand Total
+                  </span>
+                  <span className="text-xs text-emerald-400/80 font-medium">
+                    (Includes net items, discounts & taxes)
+                  </span>
+                </div>
+                <span className="text-2xl sm:text-3xl font-black text-emerald-400 tracking-tight">
+                  {currency} {grandTotal.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })}
+                </span>
               </div>
             </div>
+          </div>
 
-            <div className="pt-4">
-              <button
-                type="submit"
-                disabled={isSubmitting || stockErrors.length > 0}
-                className="w-full py-3.5 bg-gradient-to-r from-emerald-600 to-emerald-500 hover:from-emerald-500 hover:to-emerald-400 disabled:opacity-50 text-white font-extrabold text-base rounded-xl shadow-xl shadow-emerald-900/40 transition transform active:scale-98 flex items-center justify-center space-x-2"
-              >
-                <CheckCircle2 size={20} />
-                <span>{isSubmitting ? 'Updating Invoice...' : 'Save Invoice Changes'}</span>
-              </button>
-            </div>
+          {/* Full Width Submit Button */}
+          <div className="pt-4 border-t border-slate-800">
+            <button
+              type="submit"
+              disabled={isSubmitting || stockErrors.length > 0}
+              className="w-full py-4 bg-gradient-to-r from-emerald-600 to-emerald-500 hover:from-emerald-500 hover:to-emerald-400 disabled:opacity-50 text-white font-black text-lg rounded-xl shadow-xl shadow-emerald-900/40 transition transform active:scale-98 flex items-center justify-center space-x-2 cursor-pointer"
+            >
+              <CheckCircle2 size={22} />
+              <span>{isSubmitting ? 'Updating Invoice...' : 'Update & Save Invoice'}</span>
+            </button>
           </div>
         </div>
       </form>

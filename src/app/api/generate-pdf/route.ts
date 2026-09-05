@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import React from 'react';
 import { renderToBuffer } from '@react-pdf/renderer';
 import InvoiceDocument, { InvoicePdfData } from '@/components/pdf/InvoiceDocument';
+import A5InvoiceDocument from '@/components/pdf/A5InvoiceDocument';
 import ThermalReceiptDocument from '@/components/pdf/ThermalReceiptDocument';
 import DeliveryCollectionDocument, { DeliverySheetItem } from '@/components/pdf/DeliveryCollectionDocument';
 import PendingPaymentsDocument, { CustomerPendingGroup } from '@/components/pdf/PendingPaymentsDocument';
@@ -12,7 +13,7 @@ export const dynamic = 'force-dynamic';
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const format: 'a4' | 'thermal' | 'delivery-sheet' | 'pending-payments' | 'company-stock' = body.format;
+    const format: 'a4' | 'a5' | 'thermal' | 'delivery-sheet' | 'pending-payments' | 'company-stock' = body.format;
 
     if (format === 'company-stock') {
       const items: CompanyStockItem[] = body.items || [];
@@ -109,6 +110,8 @@ export async function POST(req: NextRequest) {
     const documentEl =
       format === 'thermal'
         ? React.createElement(ThermalReceiptDocument, { invoices: invoiceList })
+        : format === 'a5'
+        ? React.createElement(A5InvoiceDocument, { invoices: invoiceList })
         : React.createElement(InvoiceDocument, { invoices: invoiceList });
 
     const pdfBuffer = await renderToBuffer(documentEl as any);

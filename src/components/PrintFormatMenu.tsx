@@ -78,6 +78,17 @@ export default function PrintFormatMenu({
             </button>
             <button
               type="button"
+              onClick={() => choose('a5')}
+              className="flex w-full items-start gap-2.5 rounded-lg px-3 py-2.5 text-left transition hover:bg-slate-800"
+            >
+              <FileText size={18} className="mt-0.5 shrink-0 text-amber-400" />
+              <span>
+                <span className="block text-sm font-semibold text-white">A5 Invoice</span>
+                <span className="block text-[11px] text-slate-400">Compact A5 half-page format</span>
+              </span>
+            </button>
+            <button
+              type="button"
               onClick={() => choose('thermal')}
               className="flex w-full items-start gap-2.5 rounded-lg px-3 py-2.5 text-left transition hover:bg-slate-800"
             >

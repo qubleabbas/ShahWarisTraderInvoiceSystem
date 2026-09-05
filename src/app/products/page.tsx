@@ -28,6 +28,7 @@ function ProductsContent() {
 
   // Filters & Modal state
   const [search, setSearch] = useState('');
+  const [prodSearchMode, setProdSearchMode] = useState<'name' | 'id'>('name');
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
   const [selectedCompany, setSelectedCompany] = useState<string>('all');
   const [stockCompanyId, setStockCompanyId] = useState<string>('all');
@@ -468,17 +469,26 @@ function ProductsContent() {
   const nextProductId = maxProductId + 1;
 
   const filteredProducts = products.filter(p => {
-    const matchesSearch = fuzzyFilter([p], search, item => [
-      item.id,
-      item.name,
-      item.unit,
-      categoryMap.get(item.category_id),
-      item.company_id ? companyMap.get(item.company_id) : undefined
-    ]).length > 0;
-
     const matchesCategory = selectedCategory === 'all' || p.category_id === Number(selectedCategory);
     const matchesCompany = selectedCompany === 'all' || p.company_id === Number(selectedCompany);
-    return matchesSearch && matchesCategory && matchesCompany;
+
+    if (!matchesCategory || !matchesCompany) return false;
+
+    const query = search.trim();
+    if (!query) return true;
+
+    if (prodSearchMode === 'id') {
+      const cleanId = query.replace(/^#/, '').trim();
+      return String(p.id) === cleanId;
+    } else {
+      return fuzzyFilter([p], query, item => [
+        item.id,
+        item.name,
+        item.unit,
+        categoryMap.get(item.category_id),
+        item.company_id ? companyMap.get(item.company_id) : undefined
+      ]).length > 0;
+    }
   });
 
   const filteredCategories = fuzzyFilter(categories, search, (c) => [c.id, c.name]);
@@ -520,11 +530,11 @@ function ProductsContent() {
   const totalCompanyRetailValuation = companyStockProducts.reduce((sum, p) => sum + p.totalRetailValue, 0);
   const totalCompanyProfitPotential = totalCompanyRetailValuation - totalCompanyStockValuation;
 
-  const paginatedProducts = filteredProducts.slice((prodPage - 1) * prodPageSize, prodPage * prodPageSize);
-  const paginatedStockProducts = companyStockProducts.slice((stockPage - 1) * stockPageSize, stockPage * stockPageSize);
-  const paginatedCategories = filteredCategories.slice((catPage - 1) * catPageSize, catPage * catPageSize);
-  const paginatedCompanies = filteredCompanies.slice((compPage - 1) * compPageSize, compPage * compPageSize);
-  const paginatedUnits = filteredUnits.slice((unitPage - 1) * unitPageSize, unitPage * unitPageSize);
+  const paginatedProducts = filteredProducts.slice(0, prodPage * prodPageSize);
+  const paginatedStockProducts = companyStockProducts.slice(0, stockPage * stockPageSize);
+  const paginatedCategories = filteredCategories.slice(0, catPage * catPageSize);
+  const paginatedCompanies = filteredCompanies.slice(0, compPage * compPageSize);
+  const paginatedUnits = filteredUnits.slice(0, unitPage * unitPageSize);
 
   async function handlePrintCompanyStock() {
     try {
@@ -878,24 +888,60 @@ function ProductsContent() {
 
       {/* Filters Bar */}
       {activeTab === 'products' ? (
-        <div className="flex flex-col md:flex-row gap-4">
-          <div className="relative flex-1">
+        <div className="flex flex-col md:flex-row items-center gap-4 bg-slate-900 p-4 rounded-2xl border border-slate-800 shadow-sm">
+          {/* Segmented Control Search Mode Switcher */}
+          <div className="flex items-center bg-slate-950 p-1 rounded-xl border border-slate-800 w-full md:w-auto flex-shrink-0">
+            <button
+              type="button"
+              onClick={() => {
+                setProdSearchMode('name');
+                setSearch('');
+              }}
+              className={`flex-1 md:flex-none px-3.5 py-1.5 text-xs font-bold rounded-lg transition-all ${
+                prodSearchMode === 'name'
+                  ? 'bg-emerald-600 text-white shadow-md shadow-emerald-950'
+                  : 'text-slate-400 hover:text-white hover:bg-slate-900'
+              }`}
+            >
+              Search by Name / Details
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setProdSearchMode('id');
+                setSearch('');
+              }}
+              className={`flex-1 md:flex-none px-3.5 py-1.5 text-xs font-bold rounded-lg transition-all ${
+                prodSearchMode === 'id'
+                  ? 'bg-emerald-600 text-white shadow-md shadow-emerald-950'
+                  : 'text-slate-400 hover:text-white hover:bg-slate-900'
+              }`}
+            >
+              Search by Product ID
+            </button>
+          </div>
+
+          <div className="relative flex-1 w-full">
             <Search className="absolute left-3.5 top-3 text-slate-400" size={18} />
             <input
               type="text"
-              placeholder="Search product by name or ID (e.g. #12)..."
+              placeholder={
+                prodSearchMode === 'id'
+                  ? "Enter exact Product ID (e.g. 5 or #5)..."
+                  : "Search by product name, category, or unit..."
+              }
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              className="w-full bg-slate-900 border border-slate-800 rounded-xl pl-10 pr-4 py-2.5 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500"
+              className="w-full bg-slate-950 border border-slate-800 rounded-xl pl-10 pr-4 py-2 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500"
             />
           </div>
 
-          <div className="flex flex-wrap gap-3">
+          <div className="flex flex-wrap gap-3 w-full md:w-auto">
             {/* Category Filter */}
             <select
               value={selectedCategory}
               onChange={(e) => setSelectedCategory(e.target.value)}
-              className="bg-slate-900 border border-slate-800 rounded-xl px-4 py-2.5 text-sm text-white focus:outline-none focus:border-emerald-500"
+              className="bg-slate-950 border border-slate-800 rounded-xl px-4 py-2 text-sm text-white focus:outline-none focus:border-emerald-500 cursor-pointer"
             >
               <option value="all">All Categories</option>
               {categories.map((cat) => (
@@ -909,7 +955,7 @@ function ProductsContent() {
             <select
               value={selectedCompany}
               onChange={(e) => setSelectedCompany(e.target.value)}
-              className="bg-slate-900 border border-slate-800 rounded-xl px-4 py-2.5 text-sm text-white focus:outline-none focus:border-emerald-500"
+              className="bg-slate-950 border border-slate-800 rounded-xl px-4 py-2 text-sm text-white focus:outline-none focus:border-emerald-500 cursor-pointer"
             >
               <option value="all">All Companies</option>
               {companies.map((comp) => (

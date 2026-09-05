@@ -265,7 +265,11 @@ export default function SingleInvoicePage() {
     if (!invoice) return;
     setIsPrintingPdf(true);
     showToast(
-      format === 'thermal' ? 'Preparing thermal receipt for printing...' : 'Preparing A4 invoice for printing...',
+      format === 'thermal'
+        ? 'Preparing thermal receipt for printing...'
+        : format === 'a5'
+        ? 'Preparing A5 invoice for printing...'
+        : 'Preparing A4 invoice for printing...',
       'info'
     );
     try {
@@ -283,11 +287,18 @@ export default function SingleInvoicePage() {
     }
   }
 
-  // Server-Side Crisp Vector PDF Export (A4 invoice or thermal receipt)
+  // Server-Side Crisp Vector PDF Export (A4 invoice, A5 invoice, or thermal receipt)
   async function handleExportPdf(format: PrintFormat = 'a4') {
     if (!invoice) return;
     setIsExportingPdf(true);
-    showToast(format === 'thermal' ? 'Generating thermal receipt PDF...' : 'Generating A4 invoice PDF...', 'info');
+    showToast(
+      format === 'thermal'
+        ? 'Generating thermal receipt PDF...'
+        : format === 'a5'
+        ? 'Generating A5 invoice PDF...'
+        : 'Generating A4 invoice PDF...',
+      'info'
+    );
     try {
       const res = await fetch('/api/generate-pdf', {
         method: 'POST',

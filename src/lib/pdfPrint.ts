@@ -2,7 +2,7 @@
  * Utility to generate and print vector PDFs using server-side @react-pdf/renderer.
  * This guarantees 100% exact layout match between exported PDF and printed PDF.
  */
-export type PrintFormat = 'a4' | 'thermal';
+export type PrintFormat = 'a4' | 'a5' | 'thermal';
 
 export async function printVectorPdf(payloadList: any[], format: PrintFormat = 'a4'): Promise<void> {
   if (!payloadList || payloadList.length === 0) {

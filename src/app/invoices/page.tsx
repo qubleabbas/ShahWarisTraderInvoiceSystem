@@ -507,7 +507,11 @@ function InvoicesContent() {
   async function handlePrintInvoices(targetIds?: number[], format: PrintFormat = 'a4') {
     setIsPrinting(true);
     showToast(
-      format === 'thermal' ? 'Preparing thermal receipt(s) for printing...' : 'Preparing A4 invoice(s) for printing...',
+      format === 'thermal'
+        ? 'Preparing thermal receipt(s) for printing...'
+        : format === 'a5'
+        ? 'Preparing A5 invoice(s) for printing...'
+        : 'Preparing A4 invoice(s) for printing...',
       'info'
     );
     try {
@@ -1345,11 +1349,15 @@ function InvoicesContent() {
               </div>
 
               <Pagination
-                currentPage={page + 1}
+                currentPage={Math.max(1, Math.ceil(invoices.length / PAGE_SIZE))}
                 totalPages={Math.ceil(totalCount / PAGE_SIZE)}
                 totalItems={totalCount}
                 pageSize={PAGE_SIZE}
-                onPageChange={(p) => setPage(p - 1)}
+                onPageChange={(p) => {
+                  if (p > Math.ceil(invoices.length / PAGE_SIZE)) {
+                    loadMore();
+                  }
+                }}
                 itemName="invoices"
               />
             </div>

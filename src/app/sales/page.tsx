@@ -766,9 +766,9 @@ export default function SalesPage() {
                       </thead>
                       <tbody className="divide-y divide-slate-800/60 text-xs sm:text-sm">
                         {filteredProductsList
-                          .slice((prodSalesPage - 1) * prodSalesPageSize, prodSalesPage * prodSalesPageSize)
+                          .slice(0, prodSalesPage * prodSalesPageSize)
                           .map((ps, idx) => {
-                            const actualRank = (prodSalesPage - 1) * prodSalesPageSize + idx;
+                            const actualRank = idx;
                             return (
                               <tr key={ps.id} className="transition hover:bg-slate-800/40">
                                 <td className="py-3 pr-2">
@@ -885,9 +885,9 @@ export default function SalesPage() {
                       </thead>
                       <tbody className="divide-y divide-slate-800/60 text-xs sm:text-sm">
                         {filteredCustomersList
-                          .slice((custSalesPage - 1) * custSalesPageSize, custSalesPage * custSalesPageSize)
+                          .slice(0, custSalesPage * custSalesPageSize)
                           .map((c, idx) => {
-                            const actualRank = (custSalesPage - 1) * custSalesPageSize + idx;
+                            const actualRank = idx;
                             return (
                               <tr key={c.id} className="transition hover:bg-slate-800/40">
                                 <td className="py-3 pr-2">
